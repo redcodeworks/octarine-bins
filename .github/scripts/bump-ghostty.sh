@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Writes the Ghostty and Zig pins of src/ghostty (no git, no pull request: bump-run.sh commits, bump-weekly.sh opens the one pull request).
+# Writes the Ghostty and Zig pins of src/ghostty (no git, no pull request: bump-run.sh commits, bump-weekly.sh opens the pull request of that pin).
 #
 #   bump-ghostty.sh ghostty <new-tag> <new-commit> <zig-version> <zig-url> <zig-sha256> <zig-size>
 #       a new stable Ghostty tag: changes upstream.env (tag AND peeled commit) and zig.env (version, URL, sha256, size, signature URL) together,
