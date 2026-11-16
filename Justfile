@@ -1,5 +1,5 @@
 # Local helpers; CI calls the same recipes (build, layout), so a failure reproduces here.
-# PODMAN overrides the podman command (for example `PODMAN="podman --root /scratch/root --runroot /scratch/run --storage-driver overlay"`).
+# BUILD_ARGS adds podman build arguments (CI: --cache-from/--cache-to). PODMAN overrides the podman command (for example `PODMAN="podman --root /scratch/root --runroot /scratch/run --storage-driver overlay"`).
 
 [private]
 default:
@@ -15,7 +15,8 @@ build image="octarine-bins:dev" version="dev" revision="unknown":
     set -euo pipefail
     builder=$(sed -n 's/^BUILDER=//p' src/builder.env)
     [[ "${builder}" =~ ^registry\.fedoraproject\.org/fedora:[0-9]+@sha256:[0-9a-f]{64}$ ]] || { echo "::error::src/builder.env has no digest-pinned BUILDER"; exit 1; }
-    ${PODMAN:-podman} build \
+    # --jobs 3: the three component stages are independent and build at the same time
+    ${PODMAN:-podman} build --jobs 3 ${BUILD_ARGS:-} \
         --build-arg "BUILDER=${builder}" \
         --build-arg "IMAGE_VERSION={{ version }}" \
         --build-arg "IMAGE_REVISION={{ revision }}" \
