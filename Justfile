@@ -9,8 +9,8 @@ default:
 check:
     just --unstable --fmt --check -f Justfile
 
-# Build the image: every component in its own stage; a failing stage fails the build and nothing is tagged
-build image="octarine-bins:dev" version="dev" revision="unknown":
+# Build an image: dir is src (the base image, octarine-bins), dx or gx (octarine-bins-dx, -gx). Every component in its own stage; a failing stage fails the build and nothing is tagged
+build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
     #!/usr/bin/env bash
     set -euo pipefail
     builder=$(sed -n 's/^BUILDER=//p' src/builder.env)
@@ -22,17 +22,19 @@ build image="octarine-bins:dev" version="dev" revision="unknown":
         --build-arg "IMAGE_REVISION={{ revision }}" \
         --build-arg "IMAGE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --tag "{{ image }}" \
-        --file src/Containerfile src
+        --build-context lib=src/lib \
+        --file {{ dir }}/Containerfile {{ dir }}
 
-# Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/)
-layout image="octarine-bins:dev":
+# Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component
+layout image="octarine-bins:dev" dir="src":
     #!/usr/bin/env bash
     set -euo pipefail
     listing=$(mktemp); trap 'rm -f "${listing}"' EXIT
     id=$(${PODMAN:-podman} create "{{ image }}" /nonexistent)
     ${PODMAN:-podman} export "${id}" | tar -t > "${listing}"
     ${PODMAN:-podman} rm "${id}" > /dev/null
-    .github/scripts/binaries-layout.sh --assembled "${listing}" src/scx/schedulers.tsv $(grep -vE '^[[:space:]]*(#|$)' src/components.tsv | cut -f1)
+    empty=""; [[ "{{ dir }}" == src ]] || empty="--allow-empty"
+    .github/scripts/binaries-layout.sh --assembled ${empty} "${listing}" src/scx/schedulers.tsv $(grep -vE '^[[:space:]]*(#|$)' {{ dir }}/components.tsv | cut -f1)
 
 # Run the tests
 test:

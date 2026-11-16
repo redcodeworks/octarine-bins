@@ -6,6 +6,8 @@ The few programs that [octarine-os](https://github.com/redcodeworks/octarine-os)
 - [extest](https://github.com/Supreeeme/extest), the `libextest.so` libraries that make Steam Input work on Wayland,
 - [Ghostty](https://ghostty.org), the terminal, built with its pinned Zig toolchain.
 
+Two more images, `octarine-bins-dx` and `octarine-bins-gx`, are reserved for programs that only the developer (dx) or gaming (gx) variants of octarine-os need; they are empty for now. Each of the three is built, signed and published on its own.
+
 ## Why
 
 octarine-os is a bootc image built every day. Compiling Rust, Zig and BPF programs inside that build would make it slow and fragile, and an upstream hiccup would stop the whole OS build. Building the programs here, once, and publishing the result keeps the OS build short and keeps its inputs simple: it reads `octarine-bins:latest` and nothing else. `latest` only moves after a build here succeeded as a whole, was signed and was approved, so if any program fails to build, nothing new is published and the OS keeps using the previous binaries.

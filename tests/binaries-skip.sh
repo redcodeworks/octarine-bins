@@ -28,12 +28,13 @@ exit "${COSIGN_RC:-0}"
 F
 chmod +x "$bin"/*
 repo="$root/repo"; git init -q "$repo"; git -C "$repo" config user.email t@t; git -C "$repo" config user.name t
-mkdir -p "$repo/src" "$repo/.github/workflows" "$repo/.github/scripts"
-echo one > "$repo/src/f"; echo doc > "$repo/README"; echo wf > "$repo/.github/workflows/binaries.yml"; echo p > "$repo/.github/scripts/push-image.sh"
+mkdir -p "$repo/src/lib" "$repo/dx" "$repo/.github/actions/build-image" "$repo/.github/workflows" "$repo/.github/scripts"
+echo one > "$repo/src/f"; echo l1 > "$repo/src/lib/x"; echo b > "$repo/src/builder.env"; echo d1 > "$repo/dx/f"; echo ba > "$repo/.github/actions/build-image/action.yml"; echo doc > "$repo/README"; echo wf > "$repo/.github/workflows/binaries.yml"; echo wf > "$repo/.github/workflows/binaries-dx.yml"; echo p > "$repo/.github/scripts/push-image.sh"
 echo l > "$repo/.github/scripts/binaries-layout.sh"; echo j > "$repo/Justfile"; echo t > "$repo/.github/workflows/test.yml"
 git -C "$repo" add .; git -C "$repo" commit -q -m one
 export REV; REV=$(git -C "$repo" rev-parse HEAD)
-skip() { : > "$root/gho"; (cd "$repo" && env "$@" PATH="$bin:$PATH" GITHUB_OUTPUT="$root/gho" bash "$here/.github/scripts/binaries-skip.sh" ghcr.io/o/i) > "$root/run" 2>&1; rc=$?; }
+dir=src
+skip() { : > "$root/gho"; (cd "$repo" && env "$@" PATH="$bin:$PATH" GITHUB_OUTPUT="$root/gho" bash "$here/.github/scripts/binaries-skip.sh" ghcr.io/o/i "$dir") > "$root/run" 2>&1; rc=$?; }
 skip X=1
 check "same inputs, testing verifies: skip=true" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
 echo docs > "$repo/README"; echo t2 > "$repo/.github/workflows/test.yml"; git -C "$repo" commit -q -am docs
@@ -51,5 +52,22 @@ check "src/ changed: skip=false, build" bash -c "[ $rc = 0 ] && grep -qx skip=fa
 git -C "$repo" checkout -q -- . ; git -C "$repo" reset -q --hard HEAD~1; echo j2 > "$repo/Justfile"; git -C "$repo" commit -q -am just
 skip X=1
 check "the Justfile (build arguments) changed: skip=false, build" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
+# per image: the same git history, a different answer for each image
+git -C "$repo" reset -q --hard HEAD~1; git -C "$repo" commit -q --allow-empty -m same
+dir=dx; skip X=1
+check "dx, same inputs: skip=true" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
+echo two > "$repo/src/f"; git -C "$repo" commit -q -am base-only
+skip X=1
+check "dx: only the base image's own files changed: still skip=true" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
+echo l2 > "$repo/src/lib/x"; git -C "$repo" commit -q -am lib
+skip X=1
+check "dx: the shared src/lib changed: skip=false" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
+dir=src; skip X=1
+check "base: the shared src/lib changed: skip=false" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
+git -C "$repo" reset -q --hard "$REV"; echo d2 > "$repo/dx/f"; git -C "$repo" commit -q -am dxonly
+skip X=1
+check "base: only dx/ changed: skip=true" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
+dir=dx; skip X=1
+check "dx: dx/ changed: skip=false" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
 echo; echo "passed: $pass, failed: $failn"
 [ "$failn" = 0 ]

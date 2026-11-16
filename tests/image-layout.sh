@@ -37,5 +37,17 @@ mk_image; mkdir "$img/stray"; echo x > "$img/stray/file"; layout
 check "an unexpected top-level directory fails" bash -c "[ $rc != 0 ] && grep -q 'unexpected top-level' '$root/run'"
 mk_image; for i in $(seq 1 6000); do echo x > "$img/ghostty/root/f$i"; done; layout
 check "a long listing (6000 files) passes: no SIGPIPE of the normalizing sed under pipefail makes a present file look missing" test "$rc" = 0
+# dx and gx carry no component: the real assembler with --allow-empty, read by the layout check with --allow-empty; the base never accepts that
+empty_image() { rm -rf "$img"; mkdir -p "$img"; bash "$here/src/lib/assemble.sh" --allow-empty "$img" "$here/dx/components.tsv" > /dev/null; }
+elayout() { (cd "$img" && find . -mindepth 1 | sed 's#^\./##' | sort) > "$root/listing"; local flag=$1; shift; bash "$here/.github/scripts/binaries-layout.sh" --assembled "$flag" "$root/listing" "$tsv" "$@" > "$root/run" 2>&1; rc=$?; }
+empty_image; elayout --allow-empty
+check "an empty dx/gx image (no component, empty COMPONENTS, BUILDINFO) passes with --allow-empty" bash -c "[ $rc = 0 ] && [ ! -s '$img/COMPONENTS' ]"
+empty_image; elayout --assembled
+check "the same image without --allow-empty (the base) fails" test "$rc" != 0
+empty_image; rm "$img/BUILDINFO"; elayout --allow-empty
+check "an empty image without BUILDINFO fails" bash -c "[ $rc != 0 ] && grep -q 'lacks BUILDINFO' '$root/run'"
+check "assemble.sh without --allow-empty still refuses an empty component list (the base)" bash -c "! bash '$here/src/lib/assemble.sh' '$img' '$here/dx/components.tsv'"
+mk_image; rm -rf "$img/extest" "$img/ghostty"; elayout --allow-empty scx extest ghostty
+check "an incomplete base (extest and ghostty missing) fails even with --allow-empty" bash -c "[ $rc != 0 ] && grep -q 'lacks extest/lib/libextest.so' '$root/run'"
 echo; echo "passed: $pass, failed: $failn"
 [ "$failn" = 0 ]
