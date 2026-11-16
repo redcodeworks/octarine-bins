@@ -1,19 +1,20 @@
 name: Binaries image
-# Builds ghcr.io/redcodeworks/octarine-bins, signs it and promotes it. ONE build: src/Containerfile is a multi-stage build with a stage per component
-# (src/components.tsv: scx, extest and ghostty, all required) and an assemble stage; a component that cannot be built fails the whole build, nothing is pushed
-# and `testing` stays where it was (atomic). octarine-os reads `octarine-bins:latest` and nothing else; only the promote job below moves `latest`.
+# Builds ghcr.io/redcodeworks/octarine-bins (the base image, every octarine-os variant), signs it and promotes it. octarine-bins builds THREE independent images,
+# each by its own caller workflow of the same shared actions (.github/actions/build-image, sign-image, promote-image): this one (src/), binaries-dx.yml (dx/) and
+# binaries-gx.yml (gx/). ONE build per image: src/Containerfile is a multi-stage build with a stage per component (src/components.tsv: scx, extest and ghostty, all
+# required) and an assemble stage; a component that cannot be built fails the whole build, nothing is pushed and `testing` stays where it was (atomic). octarine-os reads
+# `latest` of its images; only the promote job below moves `latest`.
 #
 # On testing (every push, or a dispatch): `build` builds the image, checks its layout and pushes it under an immutable version tag (<date>-<short sha>);
-# `sign` signs that digest and only THEN moves `testing` to it, so nobody ever sees an unsigned `testing`. A push whose build inputs equal those of the commit the
-# current `testing` image was built from, with a verifying image, builds nothing (binaries-skip.sh): both jobs still run and succeed, their steps are skipped (the
-# ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The build reads and (on testing) writes a layer cache in the
-# separate package octarine-bins-cache; the cache only saves time, the layout check and the signature decide what is published.
+# `sign` signs that digest and only THEN moves `testing` to it, so nobody ever sees an unsigned `testing`. A push whose build inputs (binaries-inputs.sh src) equal those of
+# the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries-skip.sh): both jobs still run and succeed, their steps are skipped
+# (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The build reads and (on testing) writes a layer cache in the separate
+# package octarine-bins-cache; the cache only saves time, the layout check and the signature decide what is published.
 #
 # On main (the promotion of testing into main, or a dispatch): `promote` retags the tested, signed `testing` image to `latest` (binaries-promote.sh; no rebuild).
 # It fails unless `testing` exists and verifies with cosign.pub. Main builds nothing: it promotes the image that was built, signed and approved on testing.
 #
-# Any other ref (a dispatch from a branch) builds for validation only and publishes nothing. Nothing rebuilds the binaries on a timer: they and their pins change
-# only through a pull request the owner approves (bump-pins.yml opens the weekly one). To rebuild by hand: `gh workflow run binaries.yml --ref testing`; to promote
+# Any other ref (a dispatch from a branch) builds for validation only and publishes nothing. To rebuild by hand: `gh workflow run binaries.yml --ref testing`; to promote
 # by hand: `--ref main`.
 on:
   push:
@@ -27,9 +28,6 @@ concurrency:
   group: binaries-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  IMAGE_NAME: octarine-bins
-
 permissions: {}
 
 jobs:
@@ -42,90 +40,25 @@ jobs:
       contents: read
       packages: write
     outputs:
-      published: ${{ steps.channel.outputs.publish }}
-      image: ${{ steps.names.outputs.image }}
-      version: ${{ steps.names.outputs.version }}
-      skipped: ${{ steps.skip.outputs.skip }}
-      digest: ${{ steps.push.outputs.digests }}
+      published: ${{ steps.image.outputs.published }}
+      image: ${{ steps.image.outputs.image }}
+      version: ${{ steps.image.outputs.version }}
+      skipped: ${{ steps.image.outputs.skipped }}
+      digest: ${{ steps.image.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      # the version tag and label: <UTC date>-<short commit sha>, informational (octarine-os does not read it), immutable (one tag per commit)
-      - name: Names
-        id: names
-        run: |
-          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "version=$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
-
-      - name: Channel
-        id: channel
-        env:
-          REF: ${{ github.ref }}
-        run: |
-          publish=false
-          [[ "${REF}" != refs/heads/testing ]] || publish=true
-          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
-          echo "publish=${publish} (only testing publishes; any other ref builds for validation)"
-
-      # (the cache package and testing are read with this login too; only testing writes)
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      - name: Build, check and push the image
+        id: image
+        uses: ./.github/actions/build-image
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          name: octarine-bins
+          dir: src
 
-      - name: Set up cosign
-        if: steps.channel.outputs.publish == 'true' && github.event_name != 'workflow_dispatch'
-        uses: ./.github/actions/setup-tool
-        with:
-          tool: cosign
-
-      # nothing to build when testing already is the signed build of the same inputs (binaries-skip.sh); a dispatch and any other ref always build
-      - name: Decide whether a build is needed
-        id: skip
-        if: steps.channel.outputs.publish == 'true' && github.event_name != 'workflow_dispatch'
-        env:
-          IMAGE: ${{ steps.names.outputs.image }}
-        run: .github/scripts/binaries-skip.sh "${IMAGE}"
-
-      - name: Set up just
-        if: steps.skip.outputs.skip != 'true'
-        uses: ./.github/actions/setup-tool
-        with:
-          tool: just
-
-      # the pinned builder, every component in its own stage; any failing stage fails this step and the run
-      # The layer cache is the package <image>-cache (never the image's own tags): read on every build, written only by testing. An absent cache is a cold build.
-      - name: Build
-        if: steps.skip.outputs.skip != 'true'
-        env:
-          VERSION: ${{ steps.names.outputs.version }}
-          IMAGE: ${{ steps.names.outputs.image }}
-          PUBLISH: ${{ steps.channel.outputs.publish }}
-        run: |
-          export BUILD_ARGS="--layers --cache-from ${IMAGE}-cache"
-          [[ "${PUBLISH}" != true ]] || BUILD_ARGS+=" --cache-to ${IMAGE}-cache"
-          just build "${IMAGE_NAME}:${VERSION}" "${VERSION}" "${GITHUB_SHA}"
-
-      - name: Check the layout
-        if: steps.skip.outputs.skip != 'true'
-        env:
-          VERSION: ${{ steps.names.outputs.version }}
-        run: just layout "${IMAGE_NAME}:${VERSION}"
-
-      # One push under the version tag: one manifest digest, which the signature belongs to. `testing` is not touched here (the sign job moves it after signing).
-      - name: Push under the version tag
-        id: push
-        if: steps.channel.outputs.publish == 'true' && steps.skip.outputs.skip != 'true'
-        env:
-          IMAGE: ${{ steps.names.outputs.image }}
-          VERSION: ${{ steps.names.outputs.version }}
-        run: .github/scripts/push-image.sh "${IMAGE_NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
-
+  # signing is in this workflow, not in a shared one: the environment secret SIGNING_SECRET does not reach a job of a reusable workflow
   sign:
     name: Sign the binaries image and move testing
     needs: build
@@ -142,45 +75,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Nothing to sign
-        if: needs.build.outputs.skipped == 'true'
-        run: |
-          echo "Nothing built, nothing signed: testing already is the signed build of the same inputs (binaries-skip.sh)" | tee -a "${GITHUB_STEP_SUMMARY}"
-
-      - name: Login to GitHub Container Registry
-        if: needs.build.outputs.skipped != 'true'
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up cosign
-        if: needs.build.outputs.skipped != 'true'
-        uses: ./.github/actions/setup-tool
-        with:
-          tool: cosign
-
       - name: Sign, then move testing
-        if: needs.build.outputs.skipped != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: false
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          IMAGE: ${{ needs.build.outputs.image }}
-          VERSION: ${{ needs.build.outputs.version }}
-          DIGEST: ${{ needs.build.outputs.digest }}
-        run: |
-          set -euo pipefail
-          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No pushed digest to sign"; exit 1; }
-          # the old bundle format, as for the OS images (https://github.com/containers/container-libs/issues/388)
-          .github/scripts/retry.sh cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"
-          .github/scripts/cosign-check.sh --key cosign.pub "${IMAGE}@${DIGEST}"
-          # signed: now `testing` may point at it (a registry-side copy, the same digest)
-          .github/scripts/retry.sh skopeo copy --all --preserve-digests "docker://${IMAGE}@${DIGEST}" "docker://${IMAGE}:testing"
-          .github/scripts/registry-settled.sh "${IMAGE}" testing "${DIGEST}"
-          .github/scripts/cosign-check.sh --key cosign.pub "${IMAGE}:testing"
-          echo "signed: ${IMAGE}:${VERSION} and :testing = ${DIGEST}"
-          echo "Binaries image ${VERSION}, signed and published as \`testing\` (digest \`${DIGEST}\`)" >> "${GITHUB_STEP_SUMMARY}"
+        uses: ./.github/actions/sign-image
+        with:
+          image: ${{ needs.build.outputs.image }}
+          version: ${{ needs.build.outputs.version }}
+          digest: ${{ needs.build.outputs.digest }}
+          skipped: ${{ needs.build.outputs.skipped }}
+          key: ${{ secrets.SIGNING_SECRET }}
 
   # main: the testing image becomes latest (see binaries-promote.sh). Nothing else moves latest.
   promote:
@@ -197,17 +99,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up cosign
-        uses: ./.github/actions/setup-tool
-        with:
-          tool: cosign
-
       - name: Retag testing to latest
-        run: .github/scripts/binaries-promote.sh "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}"
+        uses: ./.github/actions/promote-image
+        with:
+          name: octarine-bins
+          dir: src

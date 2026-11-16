@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 # Check the file listing of a built binaries image (`podman export | tar -t`) against the layout octarine-os reads (its build_files/install-binaries.sh).
 #
-#   binaries-layout.sh [--assembled] <listing file> <schedulers.tsv> <component>...
+#   binaries-layout.sh [--assembled] [--allow-empty] <listing file> <schedulers.tsv> <component>...
 #
 # Per component: scx needs scx/bin/<name> for every scheduler of the manifest and scx/schedulers.tsv; extest both libraries; every
 # component needs <c>/SOURCE, <c>/BUILDINFO and <c>/LICENSES/*. The assembled image is checked with --assembled, which also needs the top-level SOURCE, BUILDINFO, LICENSES/ and COMPONENTS and
-# exactly the named components. Nothing else is judged here (the build already ran the smoke tests and the ELF checks).
+# exactly the named components. --allow-empty (the dx and gx images, never the base) accepts zero components: then only COMPONENTS and BUILDINFO are required. Nothing else is judged here (the build already ran the smoke tests and the ELF checks).
 set -euo pipefail
-assembled=0
-if [[ "${1:-}" == --assembled ]]; then assembled=1; shift; fi
+assembled=0 allow_empty=0
+while [[ "${1:-}" == --* ]]; do
+    case "$1" in
+        --assembled) assembled=1 ;;
+        --allow-empty) allow_empty=1 ;;
+        *) echo "binaries-layout.sh: unknown option $1" >&2; exit 2 ;;
+    esac
+    shift
+done
 listing=${1:?listing}
 tsv=${2:?schedulers.tsv}
 shift 2
-[[ $# -gt 0 ]] || { echo "binaries-layout.sh: name at least one component" >&2; exit 2; }
+[[ $# -gt 0 || "${allow_empty}" == 1 ]] || { echo "binaries-layout.sh: name at least one component" >&2; exit 2; }
 # The normalized listing goes to a file ONCE: a `norm | grep -q` pipeline under pipefail fails with a SIGPIPE of sed as soon as grep -q finds its match
 # early in a long listing (the ghostty component lists 900 files: every need() reported the file as missing although it was there).
 normfile=$(mktemp); trap 'rm -f "${normfile}"' EXIT
@@ -35,10 +42,13 @@ for c in "$@"; do
     grep -q "^${c}/LICENSES/." "${normfile}" || { echo "::error::the binaries image has no ${c}/LICENSES" >&2; status=1; }
 done
 if [[ "${assembled}" == 1 ]]; then
-    need SOURCE; need BUILDINFO; need COMPONENTS
-    grep -q '^LICENSES/.' "${normfile}" || { echo "::error::the binaries image has no top-level LICENSES" >&2; status=1; }
+    need BUILDINFO; need COMPONENTS
+    if [[ $# -gt 0 ]]; then
+        need SOURCE
+        grep -q '^LICENSES/.' "${normfile}" || { echo "::error::the binaries image has no top-level LICENSES" >&2; status=1; }
+    fi
     extra=$(norm | cut -d/ -f1 | sort -u | grep -vxE 'SOURCE|BUILDINFO|COMPONENTS|LICENSES' | grep -vxF -f <(printf '%s\n' "$@") || true)
     [[ -z "${extra}" ]] || { echo "::error::the binaries image holds unexpected top-level entries: ${extra//$'\n'/ }" >&2; status=1; }
 fi
-[[ "${status}" == 0 ]] && echo "binaries image layout ok: $*"
+[[ "${status}" == 0 ]] && echo "binaries image layout ok: ${*:-<no component>}"
 exit "${status}"

@@ -2,16 +2,17 @@
 # Decide whether a push to testing needs a build: NOT when the inputs of the build equal those of the commit the current `testing` image was built from (its label
 # org.opencontainers.image.revision) and that image verifies with cosign.pub. Prints and exports skip=true|false (GITHUB_OUTPUT).
 #
-#   binaries-skip.sh <registry-image>      run in a git checkout; env: GITHUB_OUTPUT
+#   binaries-skip.sh <registry-image> <dir>      <dir>: src, dx or gx (binaries-inputs.sh lists the inputs); run in a git checkout; env: GITHUB_OUTPUT
 #
-# The inputs are everything that decides what the image contains or how it is built: src/ (the Containerfile, pins, builder, scripts), the Justfile (build arguments),
-# binaries.yml, push-image.sh and binaries-layout.sh. A change to docs, tests, other workflows or scripts does not rebuild. Absent testing, an unreadable revision, other
+# The inputs are everything that decides what the image contains or how it is built: binaries-inputs.sh <dir> (the image's directory, for dx and gx the shared src/lib and
+# builder, the Justfile, the shared build action, the image's caller workflow, push-image.sh, binaries-layout.sh). A change to docs, tests, other workflows or scripts does not rebuild. Absent testing, an unreadable revision, other
 # inputs, or an image that does not verify (a signature of an old key, a failed signing) all mean skip=false: build. Only a READ ERROR (registry or cosign could not be
 # asked) fails the script: a build must not be skipped or forced on a guess. The job that calls this always succeeds, so the required check names always report.
 set -euo pipefail
 image=${1:?registry image}
+dir=${2:?image directory: src, dx or gx}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-paths=(src Justfile .github/workflows/binaries.yml .github/scripts/push-image.sh .github/scripts/binaries-layout.sh)
+mapfile -t paths < <("${here}/binaries-inputs.sh" "${dir}")
 emit() { echo "skip=$1 ($2)"; [[ -z "${GITHUB_OUTPUT:-}" ]] || echo "skip=$1" >> "${GITHUB_OUTPUT}"; exit 0; }
 inputs_of() { git ls-tree -r "$1" -- "${paths[@]}" 2> /dev/null | sha256sum | sed 's/ .*//'; }
 

@@ -1,0 +1,118 @@
+name: Build a binaries image
+description: >-
+  The build steps shared by the three images (octarine-bins, octarine-bins-dx, octarine-bins-gx), run inside the caller's `build` job (a composite action, not a reusable
+  workflow, so the job keeps the name the ruleset requires). Names the image, decides the channel (only testing publishes), skips when testing already is the signed
+  build of the same inputs (binaries-skip.sh), builds with the layer cache <image>-cache, checks the layout and pushes ONE immutable version tag. Signing and moving
+  `testing` are the caller's sign job (sign-image). The caller checks out the repository first.
+inputs:
+  name:
+    description: Image name under ghcr.io/<owner>/ (octarine-bins, octarine-bins-dx or octarine-bins-gx)
+    required: true
+  dir:
+    description: Build directory (src, dx or gx)
+    required: true
+outputs:
+  published:
+    description: "true when this run publishes (a push to testing)"
+    value: ${{ steps.channel.outputs.publish }}
+  image:
+    description: Registry image without a tag
+    value: ${{ steps.names.outputs.image }}
+  version:
+    description: "<UTC date>-<short sha>, the immutable tag"
+    value: ${{ steps.names.outputs.version }}
+  skipped:
+    description: "true when nothing was built because testing already is the signed build of the same inputs"
+    value: ${{ steps.skip.outputs.skip }}
+  digest:
+    description: Manifest digest that was pushed
+    value: ${{ steps.push.outputs.digests }}
+runs:
+  using: composite
+  steps:
+    # the version tag and label: <UTC date>-<short commit sha>, informational (octarine-os does not read it), immutable (one tag per commit)
+    - name: Names
+      id: names
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+      run: |
+        echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" >> "${GITHUB_OUTPUT}"
+        echo "version=$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+
+    - name: Channel
+      id: channel
+      shell: bash
+      env:
+        REF: ${{ github.ref }}
+      run: |
+        publish=false
+        [[ "${REF}" != refs/heads/testing ]] || publish=true
+        echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+        echo "publish=${publish} (only testing publishes; any other ref builds for validation)"
+
+    # (the cache package and testing are read with this login too; only testing writes)
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Set up cosign
+      if: steps.channel.outputs.publish == 'true' && github.event_name != 'workflow_dispatch'
+      uses: ./.github/actions/setup-tool
+      with:
+        tool: cosign
+
+    # nothing to build when testing already is the signed build of the same inputs (binaries-skip.sh); a dispatch and any other ref always build
+    - name: Decide whether a build is needed
+      id: skip
+      if: steps.channel.outputs.publish == 'true' && github.event_name != 'workflow_dispatch'
+      shell: bash
+      env:
+        IMAGE: ${{ steps.names.outputs.image }}
+        DIR: ${{ inputs.dir }}
+      run: .github/scripts/binaries-skip.sh "${IMAGE}" "${DIR}"
+
+    - name: Set up just
+      if: steps.skip.outputs.skip != 'true'
+      uses: ./.github/actions/setup-tool
+      with:
+        tool: just
+
+    # the pinned builder, every component in its own stage; any failing stage fails this step and the run
+    # The layer cache is the package <image>-cache (one per image, never the image's own tags): read on every build, written only by testing. An absent cache is a cold build.
+    - name: Build
+      if: steps.skip.outputs.skip != 'true'
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.dir }}
+        VERSION: ${{ steps.names.outputs.version }}
+        IMAGE: ${{ steps.names.outputs.image }}
+        PUBLISH: ${{ steps.channel.outputs.publish }}
+      run: |
+        export BUILD_ARGS="--layers --cache-from ${IMAGE}-cache"
+        [[ "${PUBLISH}" != true ]] || BUILD_ARGS+=" --cache-to ${IMAGE}-cache"
+        just build "${NAME}:${VERSION}" "${VERSION}" "${GITHUB_SHA}" "${DIR}"
+
+    - name: Check the layout
+      if: steps.skip.outputs.skip != 'true'
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.dir }}
+        VERSION: ${{ steps.names.outputs.version }}
+      run: just layout "${NAME}:${VERSION}" "${DIR}"
+
+    # One push under the version tag: one manifest digest, which the signature belongs to. `testing` is not touched here (the sign job moves it after signing).
+    - name: Push under the version tag
+      id: push
+      if: steps.channel.outputs.publish == 'true' && steps.skip.outputs.skip != 'true'
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        IMAGE: ${{ steps.names.outputs.image }}
+        VERSION: ${{ steps.names.outputs.version }}
+      run: .github/scripts/push-image.sh "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"

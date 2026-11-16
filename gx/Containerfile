@@ -1,0 +1,33 @@
+# The gx binaries image, ghcr.io/redcodeworks/octarine-bins-gx (.github/workflows/binaries-gx.yml): binaries only the gx image of octarine-os needs.
+# No component yet: the assemble stage writes an EMPTY /COMPONENTS (zero components = nothing to install) and an empty BUILDINFO, and the image holds nothing else.
+# Build: `just build octarine-bins-gx:dev dev unknown gx` (context: this directory; --build-context lib=src/lib is the shared helpers). To add a component, see gx/README.md.
+ARG BUILDER
+
+# ---- component stages go here, one per component (see src/Containerfile for the pattern: FROM ${BUILDER} AS <name>, COPY --from=lib . /binaries/lib, COPY <name> /binaries/<name>, build, stage.sh)
+
+# ---- assemble: the same assembler as the base image; --allow-empty is what lets a list without components through, drop it once there is one
+FROM ${BUILDER} AS assemble
+# COPY --from=<stage> /out /out/<name> for each component goes here
+COPY components.tsv /
+COPY --from=lib assemble.sh /
+RUN mkdir -p /out && /assemble.sh --allow-empty /out /components.tsv
+
+FROM scratch
+
+# Build values passed by CI (podman build --build-arg ...); no secrets
+ARG IMAGE_VERSION=dev
+ARG IMAGE_REVISION=unknown
+ARG IMAGE_CREATED=unknown
+
+COPY --from=assemble /out /
+
+LABEL maintainer="redcodeworks/octarine-bins" \
+      org.opencontainers.image.authors="redcodeworks" \
+      org.opencontainers.image.vendor="redcodeworks" \
+      org.opencontainers.image.title="octarine-bins-gx" \
+      org.opencontainers.image.description="Prebuilt binaries only the octarine-os gx image needs (no component yet)" \
+      org.opencontainers.image.url="https://github.com/redcodeworks/octarine-bins" \
+      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-bins" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${IMAGE_REVISION}" \
+      org.opencontainers.image.created="${IMAGE_CREATED}"
