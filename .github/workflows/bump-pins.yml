@@ -1,0 +1,60 @@
+name: Bump pins
+# ONE weekly workflow for every external pin that is bumped automatically (scx, extest, Ghostty with its Zig pin, and the Fedora builder digest): ONE combined pull request
+# into `testing` (branch bump/weekly-YYYYMMDD, one commit per pin that moved, only the pin lines changed; nothing is built or published here; the owner merges it, or drops a
+# pin by reverting its commit). Monday 07:00 UTC; scheduled workflows run only from the default branch, so the schedule starts after the first promotion of this file into
+# `main`; workflow_dispatch works from any branch that has the file (`gh workflow run bump-pins.yml --ref testing`; with `-f dry_run=true` it prints the would-be pull request and
+# pushes and opens nothing, and may be dispatched from any branch to try its scripts).
+#
+# One job, one script (.github/scripts/bump-weekly.sh): every pin goes through bump-run.sh (the decision scripts per kind and the pin writers), each pin that moved becomes a
+# commit, then the pull request is opened and every older open weekly one is closed with a pointer to it. A failing pin (an upstream that cannot be reached) changes nothing and
+# turns the run red; the other pins still go in. Stay manual by the owner's decision: the tool versions (cosign, just, gitleaks, zizmor), the runner label and the signing key.
+#
+# Token: only the default GITHUB_TOKEN. Its pushes and pull requests start no workflow except workflow_dispatch, so bump-checks.sh dispatches the Test workflow ON TESTING with
+# `ref=<bump commit>` (`actions: write`; it tests that commit). A run dispatched on the bump branch would not count (a dispatched run is not part of a PR's rollup, and check
+# runs posted into its suite are not counted either), so bump-checks.sh waits for the run and posts check runs named `test` and `secrets` with its real results on the bump
+# commit (`checks: write`; a commit without a suite of its own takes them). "Allow GitHub Actions to create and approve pull requests" must be on in the repository settings.
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Monday 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the would-be pull request (title, branch, commits, table); push and open nothing
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump the pins
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      checks: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # testing, so the pins compared and the scripts run are testing's; a manual dry run from another branch checks that branch out to try its scripts
+      - name: Check out testing
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.dry_run && github.ref_name || 'testing' }}
+          fetch-depth: 0
+
+      - name: Check every pin and open the one pull request
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          .github/scripts/bump-weekly.sh

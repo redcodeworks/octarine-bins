@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# The writer-to-reader test of the image layout: the REAL assembler (src/lib/assemble.sh, the `assemble` stage of src/Containerfile) writes COMPONENTS and the combined
+# LICENSES/SOURCE/BUILDINFO around fake component directories, and the layout check (.github/scripts/binaries-layout.sh, run on every built image) reads the listing of the
+# result with the component list of the real src/components.tsv and the real scheduler manifest. The layout is what octarine-os's installer reads. Run: tests/image-layout.sh
+set -uo pipefail
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(mktemp -d)
+trap 'rm -rf -- "$root"' EXIT
+pass=0; failn=0; rc=0
+ok() { pass=$((pass + 1)); echo "ok   $1"; }
+bad() { failn=$((failn + 1)); echo "FAIL $1"; sed 's/^/     run: /' "$root/run" 2> /dev/null; echo "     rc=$rc"; }
+check() { local d=$1; shift; if "$@" > "$root/out" 2>&1; then ok "$d"; else bad "$d"; fi; }
+
+tsv="$here/src/scx/schedulers.tsv"
+comps=$(grep -vE '^[[:space:]]*(#|$)' "$here/src/components.tsv" | cut -f1)
+img="$root/img"
+mk_image() { # a component tree as the build stages leave it, assembled by the real assemble.sh
+    rm -rf "$img"; mkdir -p "$img/scx/bin" "$img/scx/LICENSES" "$img/extest/lib" "$img/extest/lib64" "$img/extest/LICENSES" "$img/ghostty/root/usr/bin" "$img/ghostty/root/usr/share/applications" "$img/ghostty/LICENSES"
+    for n in $(grep -vE '^[[:space:]]*(#|$)' "$tsv" | cut -f1); do printf '#!/bin/sh\n' > "$img/scx/bin/$n"; done
+    cp "$tsv" "$img/scx/schedulers.tsv"
+    echo 32 > "$img/extest/lib/libextest.so"; echo 64 > "$img/extest/lib64/libextest.so"
+    : > "$img/ghostty/root/usr/bin/ghostty"; : > "$img/ghostty/root/usr/share/applications/com.mitchellh.ghostty.desktop"
+    printf '%s\n' usr/bin/ghostty usr/share/applications/com.mitchellh.ghostty.desktop > "$img/ghostty/FILES"
+    for c in scx extest ghostty; do echo "$c-license" > "$img/$c/LICENSES/$c-LICENSE"; echo src > "$img/$c/SOURCE"; echo build > "$img/$c/BUILDINFO"; done
+    bash "$here/src/lib/assemble.sh" "$img" "$here/src/components.tsv" > /dev/null
+}
+layout() { (cd "$img" && find . -mindepth 1 | sed 's#^\./##' | sort) > "$root/listing"; bash "$here/.github/scripts/binaries-layout.sh" --assembled "$root/listing" "$tsv" $comps > "$root/run" 2>&1; rc=$?; }
+
+mk_image; layout
+check "assembled image: every component, COMPONENTS, top-level LICENSES/SOURCE/BUILDINFO pass, for all schedulers of the real manifest" test "$rc" = 0
+check "COMPONENTS names the components one per line, as components.tsv lists them" bash -c "[ \"\$(cat '$img/COMPONENTS')\" = \"$comps\" ]"
+mk_image; rm "$img/scx/bin/scx_cake"; layout
+check "a scheduler of the manifest missing from the image fails and is named" bash -c "[ $rc != 0 ] && grep -q 'lacks scx/bin/scx_cake' '$root/run'"
+mk_image; rm "$img/COMPONENTS"; layout
+check "an image without COMPONENTS fails" bash -c "[ $rc != 0 ] && grep -q 'lacks COMPONENTS' '$root/run'"
+mk_image; mkdir "$img/stray"; echo x > "$img/stray/file"; layout
+check "an unexpected top-level directory fails" bash -c "[ $rc != 0 ] && grep -q 'unexpected top-level' '$root/run'"
+mk_image; for i in $(seq 1 6000); do echo x > "$img/ghostty/root/f$i"; done; layout
+check "a long listing (6000 files) passes: no SIGPIPE of the normalizing sed under pipefail makes a present file look missing" test "$rc" = 0
+echo; echo "passed: $pass, failed: $failn"
+[ "$failn" = 0 ]
