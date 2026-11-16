@@ -32,7 +32,7 @@ Build it locally with `just build` and check the result with `just layout`.
 
 ## Contributing
 
-This is a personal project. Issues and pull requests are welcome, but they may sit unanswered. Pinned versions change only through a reviewed pull request (a weekly workflow proposes them). Run `just check` and `just test` before opening one.
+This is a personal project. Issues and pull requests are welcome, but they may sit unanswered. Pinned versions change only through a reviewed pull request (a weekly workflow proposes each one as its own pull request). Run `just check` and `just test` before opening one.
 
 ## License
 
