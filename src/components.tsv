@@ -1,0 +1,4 @@
+# component   (one stage each in src/Containerfile; every component is required, see CLAUDE.md)
+scx
+extest
+ghostty

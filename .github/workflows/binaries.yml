@@ -1,0 +1,178 @@
+name: Binaries image
+# Builds ghcr.io/redcodeworks/octarine-bins, signs it and promotes it. ONE build: src/Containerfile is a multi-stage build with a stage per component
+# (src/components.tsv: scx, extest and ghostty, all required) and an assemble stage; a component that cannot be built fails the whole build, nothing is pushed
+# and `testing` stays where it was (atomic). octarine-os reads `octarine-bins:latest` and nothing else; only the promote job below moves `latest`.
+#
+# On testing (every push, or a dispatch): `build` builds the image, checks its layout and pushes it under an immutable version tag (<date>-<short sha>);
+# `sign` signs that digest and only THEN moves `testing` to it, so nobody ever sees an unsigned `testing`.
+#
+# On main (the promotion of testing into main, or a dispatch): `promote` retags the tested, signed `testing` image to `latest` (binaries-promote.sh; no rebuild).
+# It fails unless `testing` exists and verifies with cosign.pub. Main builds nothing: it promotes the image that was built, signed and approved on testing.
+#
+# Any other ref (a dispatch from a branch) builds for validation only and publishes nothing. Nothing rebuilds the binaries on a timer: they and their pins change
+# only through a pull request the owner approves (bump-pins.yml opens the weekly one). To rebuild by hand: `gh workflow run binaries.yml --ref testing`; to promote
+# by hand: `--ref main`.
+on:
+  push:
+    branches:
+      - testing
+      - main
+  workflow_dispatch:
+
+# one run per ref at a time, none cancelled: two runs never push `testing` out of order
+concurrency:
+  group: binaries-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: octarine-bins
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build the binaries image
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      published: ${{ steps.channel.outputs.publish }}
+      image: ${{ steps.names.outputs.image }}
+      version: ${{ steps.names.outputs.version }}
+      digest: ${{ steps.push.outputs.digests }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # the version tag and label: <UTC date>-<short commit sha>, informational (octarine-os does not read it), immutable (one tag per commit)
+      - name: Names
+        id: names
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "version=$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+
+      - name: Channel
+        id: channel
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          publish=false
+          [[ "${REF}" != refs/heads/testing ]] || publish=true
+          echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+          echo "publish=${publish} (only testing publishes; any other ref builds for validation)"
+
+      - name: Set up just
+        uses: ./.github/actions/setup-tool
+        with:
+          tool: just
+
+      # the pinned builder, every component in its own stage; any failing stage fails this step and the run
+      - name: Build
+        env:
+          VERSION: ${{ steps.names.outputs.version }}
+        run: just build "${IMAGE_NAME}:${VERSION}" "${VERSION}" "${GITHUB_SHA}"
+
+      - name: Check the layout
+        env:
+          VERSION: ${{ steps.names.outputs.version }}
+        run: just layout "${IMAGE_NAME}:${VERSION}"
+
+      - name: Login to GitHub Container Registry
+        if: steps.channel.outputs.publish == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One push under the version tag: one manifest digest, which the signature belongs to. `testing` is not touched here (the sign job moves it after signing).
+      - name: Push under the version tag
+        id: push
+        if: steps.channel.outputs.publish == 'true'
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          VERSION: ${{ steps.names.outputs.version }}
+        run: .github/scripts/push-image.sh "${IMAGE_NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
+
+  sign:
+    name: Sign the binaries image and move testing
+    needs: build
+    if: needs.build.result == 'success' && needs.build.outputs.published == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment: signing
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up cosign
+        uses: ./.github/actions/setup-tool
+        with:
+          tool: cosign
+
+      - name: Sign, then move testing
+        env:
+          COSIGN_EXPERIMENTAL: false
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          IMAGE: ${{ needs.build.outputs.image }}
+          VERSION: ${{ needs.build.outputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No pushed digest to sign"; exit 1; }
+          # the old bundle format, as for the OS images (https://github.com/containers/container-libs/issues/388)
+          .github/scripts/retry.sh cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"
+          .github/scripts/cosign-check.sh --key cosign.pub "${IMAGE}@${DIGEST}"
+          # signed: now `testing` may point at it (a registry-side copy, the same digest)
+          .github/scripts/retry.sh skopeo copy --all --preserve-digests "docker://${IMAGE}@${DIGEST}" "docker://${IMAGE}:testing"
+          .github/scripts/registry-settled.sh "${IMAGE}" testing "${DIGEST}"
+          .github/scripts/cosign-check.sh --key cosign.pub "${IMAGE}:testing"
+          echo "signed: ${IMAGE}:${VERSION} and :testing = ${DIGEST}"
+          echo "Binaries image ${VERSION}, signed and published as \`testing\` (digest \`${DIGEST}\`)" >> "${GITHUB_STEP_SUMMARY}"
+
+  # main: the testing image becomes latest (see binaries-promote.sh). Nothing else moves latest.
+  promote:
+    name: Promote the tested binaries image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up cosign
+        uses: ./.github/actions/setup-tool
+        with:
+          tool: cosign
+
+      - name: Retag testing to latest
+        run: .github/scripts/binaries-promote.sh "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}"

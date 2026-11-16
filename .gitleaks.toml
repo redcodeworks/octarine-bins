@@ -1,0 +1,10 @@
+title = "octarine-bins gitleaks config"
+
+[extend]
+useDefault = true
+
+# The minisign PUBLIC key of the Zig release signatures (src/ghostty/zig.env): public by design, published on ziglang.org/download.
+# Allowed by its exact value only; no other key-looking string is.
+[[allowlists]]
+description = "Zig release signing key (minisign public key)"
+regexes = ['''RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti\+JO/wCYvhbAb/U''']
