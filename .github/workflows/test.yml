@@ -1,0 +1,82 @@
+name: Test
+# The run of a push is named after the commit; a dispatch with `ref` (the bump workflow tests a bump branch tip from the testing ref, see bump-checks.sh) is named
+# "Test of <sha>" so bump-checks.sh finds it. A dispatch on a branch itself (no ref) still works.
+run-name: ${{ inputs.ref && format('Test of {0}', inputs.ref) || github.event.head_commit.message || 'Test' }}
+
+# The fast lane: every push to a branch other than main runs the quick checks (`test`) and a secret scan (`secrets`). The ruleset requires both on the pull requests into
+# testing. A push to `testing` runs them too: that run is a result to look at, not a gate. No pull_request trigger: the push check run is reported on the commit, so the
+# pull request sees it and nothing runs twice. The image build is binaries.yml (testing and main pushes).
+on:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit to test (default: the commit of the ref the run was started on)"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  # a newer push to a branch replaces the older run of that ref; only the tip's result matters. A dispatched run is grouped by the commit it tests (inputs.ref),
+  # so a push never cancels it and it never cancels a push run.
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # bash -n on the shell scripts, a parse of the workflow files, the Justfile format and the tests (tests/*.sh: stubbed registry and cosign, no network, a few seconds)
+  test:
+    name: test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Sanity checks
+        run: .github/scripts/sanity.sh
+
+      - name: Set up just
+        uses: ./.github/actions/setup-tool
+        with:
+          tool: just
+
+      - name: Check Just format
+        run: just check
+
+      - name: Run the tests
+        run: just test
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install the pinned gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "${RUNNER_TEMP}/${f}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${f}"
+          echo "${GITLEAKS_SHA256}  ${RUNNER_TEMP}/${f}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/gitleaks"
+          tar -xzf "${RUNNER_TEMP}/${f}" -C "${RUNNER_TEMP}/gitleaks" gitleaks
+          echo "${RUNNER_TEMP}/gitleaks" >> "${GITHUB_PATH}"
+
+      - name: Scan the full history
+        run: gitleaks git --config .gitleaks.toml --redact --no-banner .
