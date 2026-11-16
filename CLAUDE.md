@@ -14,7 +14,7 @@ It builds the binaries octarine-os installs (the sched_ext schedulers `scx`, `ex
 - `src/components.tsv` (component names, one per line, comments allowed), `src/builder.env` (the digest-pinned Fedora builder every stage starts from, passed as `--build-arg BUILDER`), `src/<component>/` (`upstream.env` pin, `build.sh`, for scx `schedulers.tsv`, for ghostty `zig.env` and `fetch-zig.sh`), `src/lib/` (`upstream-env.sh` parser, `fetch-source.sh`, `stage.sh`, `assemble.sh`).
 - `.github/workflows/`: `test.yml`, `binaries.yml` (build, sign, promote), `bump-pins.yml`, `zizmor.yml`, `require-testing-branch.yml`. `.github/scripts/`: the helpers (below). `.github/actions/setup-tool` installs pinned cosign or just. `.github/dependabot.yml` bumps the pinned actions (PRs into `testing`).
 - `Justfile`: `check` (format check), `build`, `layout`, `test`; CI calls `build` and `layout` too. `tests/*.sh`: stub-based tests, no network.
-- `cosign.pub` (public, committed). `cosign.key` sits in the repo directory, git-ignored: NEVER read, print, copy, stage or commit it. CI signs with the secret `SIGNING_SECRET` of the environment `signing` (branch policy `main`, `testing`); do not create other secrets or tokens.
+- `cosign.pub` (public, committed) is this repo's OWN key, not shared with octarine-os (one key per repo: a shared key would let a compromised workflow here sign octarine-os images). octarine-os verifies `octarine-bins` with its own copy of this public key; when the key changes, that copy changes first or together. `cosign.key` sits in the repo directory, git-ignored: NEVER read, print, copy, stage or commit it. CI signs with the secret `SIGNING_SECRET` of the environment `signing` (branch policy `main`, `testing`); do not create other secrets or tokens.
 
 ## The image layout (the contract with octarine-os)
 
@@ -48,7 +48,7 @@ Pins: scx and extest (`src/<c>/upstream.env`: tag and/or commit), Ghostty (`src/
 
 ## What octarine-os expects
 
-`octarine-bins:latest` exists, verifies with `cosign.pub` (the OS build resolves the tag to a digest once and verifies it), and has the layout above, with exactly the components its installer's `required` list names (`scx extest ghostty`), no more. A new or removed component means a coordinated change on both sides (reader first). The scheduler list is `src/scx/schedulers.tsv`; octarine-os generates its registry from the copy inside the image.
+`octarine-bins:latest` exists, verifies with this repo's `cosign.pub` (the OS build resolves the tag to a digest once and verifies it), and has the layout above, with exactly the components its installer's `required` list names (`scx extest ghostty`), no more. A new or removed component means a coordinated change on both sides (reader first). The scheduler list is `src/scx/schedulers.tsv`; octarine-os generates its registry from the copy inside the image.
 
 ## Failure modes and hand fixes
 
