@@ -18,6 +18,7 @@ echo "skopeo $*" >> "$LOG"
 ref="${@: -1}"; ref="${ref#docker://}"; tag="${ref##*:}"
 case "$1" in
     inspect)
+        if [[ "$2" == --config ]]; then printf '{"config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}' "$REV"; exit 0; fi
         [[ -s "$ST/$tag" ]] || { echo "manifest unknown" >&2; exit 1; }
         cat "$ST/$tag" ;;
     manifest-digest) printf 'sha256:%s\n' "$(sha256sum "$2" | sed 's/ .*//')" ;;
@@ -33,9 +34,14 @@ F
 chmod +x "$bin"/*
 export LOG="$root/log" ST="$st"
 IMG=ghcr.io/redcodeworks/octarine-bins
+# a real repository: the revision the testing image names, then a promotion merge commit whose tree equals it (the tree is what is compared, not the commit)
+repo="$root/repo"; git init -q "$repo"; git -C "$repo" config user.email t@t; git -C "$repo" config user.name t
+echo one > "$repo/f"; git -C "$repo" add f; git -C "$repo" commit -q -m one
+export REV; REV=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" commit -q --amend -m "merge commit, same tree"
 promote() { # env assignments...
     : > "$LOG"; : > "$root/gho"
-    env "$@" PATH="$bin:$PATH" GITHUB_OUTPUT="$root/gho" bash "$here/.github/scripts/binaries-promote.sh" "$IMG" > "$root/run" 2>&1; rc=$?
+    (cd "$repo" && env "$@" PATH="$bin:$PATH" GITHUB_OUTPUT="$root/gho" bash "$here/.github/scripts/binaries-promote.sh" "$IMG") > "$root/run" 2>&1; rc=$?
 }
 
 printf tested > "$st/testing"; rm -f "$st/latest"
@@ -50,6 +56,9 @@ check "latest holds older content: it moves to the tested digest" bash -c "[ $rc
 printf older > "$st/latest"
 promote COSIGN_RC=1
 check "testing is not signed: fails, nothing copied, latest untouched" bash -c "[ $rc != 0 ] && [ \$(grep -c '^skopeo copy' '$LOG') = 0 ] && [ \"\$(cat '$st/latest')\" = older ]"
+echo two > "$repo/f"; git -C "$repo" commit -q -am two
+promote X=1
+check "testing was built from another tree: fails loudly, nothing copied" bash -c "[ $rc != 0 ] && grep -q 'testing moved on' '$root/run' && [ \$(grep -c '^skopeo copy' '$LOG') = 0 ]"
 rm -f "$st/testing"
 promote X=1
 check "no testing image at all: fails, nothing copied, nothing is built instead" bash -c "[ $rc != 0 ] && grep -q 'build on testing first' '$root/run' && [ \$(grep -c '^skopeo copy' '$LOG') = 0 ]"
