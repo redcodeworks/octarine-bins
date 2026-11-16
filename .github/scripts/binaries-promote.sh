@@ -4,10 +4,11 @@
 #
 #   binaries-promote.sh <registry-image>        env: GITHUB_OUTPUT (changed=true|false, digest=<digest of latest>)
 #
-# Fails, and changes nothing, unless `testing` exists, verifies with cosign.pub and was built from exactly what is being promoted: the tree of the commit named by
-# its label org.opencontainers.image.revision must equal the tree of this checkout (HEAD, the merge commit of the promotion PR, whose tree equals the testing tip's
-# when main has nothing testing lacks). A running or failed build on testing, or a testing that moved on, therefore fails the promotion; re-run it when the tip's
-# build is green. Run it in a git checkout (the revision commit is fetched when missing). Afterwards the tag is read back until it shows the digest, and the
+# Fails, and changes nothing, unless `testing` exists, verifies with cosign.pub and was built from exactly the binaries being promoted: src/ of the commit named by
+# its label org.opencontainers.image.revision must equal src/ of this checkout (HEAD, the merge commit of the promotion PR, whose src/ equals the testing tip's
+# when main has nothing testing lacks). Only src/ is compared: a push that did not change the inputs of the build leaves `testing` at an older revision (binaries-skip.sh),
+# and a change to docs or tests does not make the image stale. A running or failed build on testing, or a testing that moved on, therefore fails the promotion; re-run it
+# when the tip's build is green. Run it in a git checkout (the revision commit is fetched when missing). Afterwards the tag is read back until it shows the digest, and the
 # signature is verified through `latest`.
 set -euo pipefail
 image=${1:?registry image}
@@ -22,10 +23,10 @@ tested=$(IMAGE="${image}" "${here}/registry-digest.sh" testing) || rc=$?
 cfg=$("${here}/registry-read.sh" config "${image}@${tested}") || fail "the config of ${image}@${tested} could not be read"
 rev=$(jq -r '.config.Labels["org.opencontainers.image.revision"] // empty' <<< "${cfg}")
 [[ "${rev}" =~ ^[0-9a-f]{40}$ ]] || fail "${image}:testing has no valid revision label ('${rev}')"
-tree_of() { git rev-parse --verify -q "$1^{tree}" 2> /dev/null; }
+tree_of() { git rev-parse --verify -q "$1:src" 2> /dev/null; }  # the tree of src/ at a commit
 built=$(tree_of "${rev}") || { git fetch -q --depth=1 origin "${rev}" 2> /dev/null || true; built=$(tree_of "${rev}") || built=unknown; }
-this=$(tree_of HEAD) || fail "cannot read the tree of HEAD"
-[[ "${built}" == "${this}" ]] || fail "testing was built from ${rev} (tree ${built}), this tree is ${this}: the build on testing is running, failed, or testing moved on; re-run promote when the tip's build is green"
+this=$(tree_of HEAD) || fail "cannot read src/ of HEAD"
+[[ "${built}" == "${this}" ]] || fail "testing was built from ${rev} (src/ tree ${built}), this src/ tree is ${this}: the build on testing is running, failed, or testing moved on; re-run promote when the tip's build is green"
 
 rc=0
 current=$(IMAGE="${image}" "${here}/registry-digest.sh" latest) || rc=$?
