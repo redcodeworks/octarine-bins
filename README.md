@@ -39,7 +39,7 @@ Build it locally with `just build` and check the result with `just layout`.
 
 ## Contributing
 
-This is a personal project. Issues and pull requests are welcome, but they may sit unanswered. Pinned versions change only through a reviewed pull request (a weekly workflow proposes each one as its own pull request). Run `just check` and `just test` before opening one (`just test` needs [uv](https://docs.astral.sh/uv/), which runs pytest for it; nothing is installed globally). The CI scripts are plain Python 3 (standard library only) in `.github/scripts/`.
+This is a personal project. Issues and pull requests are welcome, but they may sit unanswered. Pinned versions change only through a reviewed pull request (a weekly workflow proposes each one as its own pull request). Run `just check` and `just test` before opening one (`just test` needs [uv](https://docs.astral.sh/uv/), which runs pytest for it in its own environment; nothing is installed globally). The CI scripts are Python in `.github/scripts/`, run through uv with the dependencies locked in `uv.lock` (Python 3.14, which uv installs).
 
 ## License
 
