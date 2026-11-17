@@ -157,3 +157,15 @@ def test_promote_compares_the_trees_of_the_image(promoted, edit, directory, pass
         assert p.returncode == 0, p.stderr
     else:
         assert p.returncode == 1 and "testing moved on" in p.stderr and copies(log) == 0
+
+
+def test_skip_decides_although_the_registry_lags_on_the_digest_read(fakes, tested, repo, tmp_path):
+    r, rev = repo
+    p, out = skip(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"))
+    assert p.returncode == 0 and out == "skip=true", p.stderr
+
+
+def test_promote_survives_registry_lag_on_the_digest_read_and_on_cosign(promoted, tmp_path):
+    r, rev, state, log = promoted
+    p, out = promote(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"), LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
+    assert p.returncode == 0 and "changed=true" in out, p.stderr

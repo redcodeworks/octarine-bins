@@ -41,7 +41,7 @@ def decide(image, directory):
     except registry.Absent:
         return False, "no testing image yet"
     try:
-        config = json.loads(registry.read("config", f"{image}@{tested}"))
+        config = json.loads(registry.read_by_digest("config", image, tested))
     except (registry.Absent, ValueError) as e:
         raise registry.ReadError(f"the config of {image}@{tested} could not be read ({e})")
     rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""

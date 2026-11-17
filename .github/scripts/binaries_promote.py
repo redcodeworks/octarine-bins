@@ -42,7 +42,7 @@ def promote(image, directory):
     except (registry.NotVerified, registry.ReadError):
         raise Fail(f"{image}@{tested} is not signed with cosign.pub")
     try:
-        config = json.loads(registry.read("config", f"{image}@{tested}"))
+        config = json.loads(registry.read_by_digest("config", image, tested))
     except (registry.Absent, registry.ReadError, ValueError):
         raise Fail(f"the config of {image}@{tested} could not be read")
     rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""
@@ -75,7 +75,7 @@ def promote(image, directory):
         raise Fail(str(e))
     try:
         registry.settled(image, "latest", tested)
-        registry.cosign_check(["--key", "cosign.pub", f"{image}:latest"])
+        registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}:latest"])  # the tag was copied seconds ago
     except registry.ReadError as e:
         raise Fail(str(e))
     except registry.NotVerified:
