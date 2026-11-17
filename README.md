@@ -8,10 +8,10 @@ The few programs that [octarine-os](https://github.com/redcodeworks/octarine-os)
 
 Two more images follow the same pattern for the other octarine-os variants:
 
-- `octarine-bins-dx`: what the developer (dx) variant installs besides the base, currently the developer package list.
-- `octarine-bins-gx`: what the gaming (gx) variant installs besides the base, currently the gaming package lists (Fedora packages, Steam from negativo17, Sunshine from COPR; no RPM Fusion).
+- `octarine-bins-dx`: what the developer (dx) variant installs besides the base, currently the developer package lists (required and optional).
+- `octarine-bins-gx`: what the gaming (gx) variant installs besides the base, currently the gaming package lists, required and optional (Fedora packages, Steam from negativo17, Sunshine from COPR; no RPM Fusion).
 
-Each of the three is built, signed and published on its own.
+The base image also carries the package lists of the default octarine-os image. Each of the three is built, signed and published on its own.
 
 ## Why
 
@@ -23,7 +23,7 @@ Nothing, if you only use octarine-os: its build picks the image up by itself. To
 
 ## Install and usage
 
-The image is not meant to be run. It is `FROM scratch` and holds one directory per program (`/scx`, `/extest`, `/ghostty`), the license texts and source records of each, and a list of the components. The dx and gx images also hold a `packages` directory with the package lists and the scripts that install them. A consumer copies from it, for example by mounting it in a step of its own Containerfile:
+The image is not meant to be run. It is `FROM scratch` and holds one directory per program (`/scx`, `/extest`, `/ghostty`), the license texts and source records of each, and a list of the components. Every image also holds a `packages` directory with its package lists (required and optional) and the script that installs them. A consumer copies from it, for example by mounting it in a step of its own Containerfile:
 
 ```
 RUN --mount=type=bind,from=ghcr.io/redcodeworks/octarine-bins:latest,target=/binaries ...
