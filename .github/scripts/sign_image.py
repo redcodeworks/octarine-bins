@@ -26,10 +26,10 @@ def main(argv=None):
     try:
         with ci.group("sign, verify, then move testing"):
             registry.sign(f"{image}@{digest}")
-            registry.cosign_check(["--key", "cosign.pub", f"{image}@{digest}"])
+            registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}@{digest}"])  # the signature was written seconds ago
             registry.copy(f"{image}@{digest}", f"{image}:testing")
             registry.settled(image, "testing", digest)
-            registry.cosign_check(["--key", "cosign.pub", f"{image}:testing"])
+            registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}:testing"])  # the tag was copied seconds ago: cosign may not see it yet even after settled()
     except (ci.NetworkError, registry.ReadError, registry.NotVerified) as e:
         ci.log.error(str(e))
         return 1

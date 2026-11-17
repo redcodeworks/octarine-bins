@@ -27,8 +27,9 @@ class NotVerified(Exception):
 
 
 ABSENT = re.compile(r"manifest unknown|name unknown|MANIFEST_UNKNOWN|NAME_UNKNOWN|not found|\b404\b|no such manifest", re.I)
-UNSIGNED = re.compile(r"no signatures found|no matching signatures|invalid signature|signature verification failed|MANIFEST_UNKNOWN|NAME_UNKNOWN|manifest unknown"
-                      r"|not found|none of the expected identities", re.I)
+# What cosign says when the signature itself is missing or wrong. A missing IMAGE or TAG ("image tag not found", MANIFEST_UNKNOWN) is NOT here: right after a write the registry
+# may not show it yet (read-after-write lag seen on GHCR), so that is a read error, retried.
+UNSIGNED = re.compile(r"no signatures found|no matching signatures|invalid signature|signature verification failed|none of the expected identities", re.I)
 
 
 def inspect_once(mode, ref, linux_amd64=False):
@@ -40,7 +41,7 @@ def inspect_once(mode, ref, linux_amd64=False):
         return proc.stdout
     err = ci.stderr_of(proc)
     if ABSENT.search(err):
-        raise Absent(f"{ref} does not exist ({ci.text(err, 200)})")
+        raise Absent(f"{ref} does not exist ({ci.text(err, 500)})")
     raise ReadError(f"could not read {ref} (a read error, NOT a missing image): {ci.text(err)}")
 
 
@@ -48,6 +49,13 @@ def inspect_once(mode, ref, linux_amd64=False):
 def read(mode, ref, linux_amd64=False):
     """`skopeo inspect` with the retries: raw manifest or image config bytes; raises Absent at once, ReadError after the last try."""
     return inspect_once(mode, ref, linux_amd64)
+
+
+@ci.retry(on=(ReadError, Absent), attempts=5)
+def read_by_digest(mode, image, digest):
+    """Read an image the registry itself named a moment ago (a digest taken from a tag): it cannot be absent, so an "absent" answer is registry lag and is retried like a read
+    error (5 tries, 5 to 20 s apart), then raised as it is."""
+    return inspect_once(mode, f"{image}@{digest}")
 
 
 def digest(image, tag):
@@ -72,9 +80,10 @@ def settled(image, tag, want):
     read_back()
 
 
-@ci.retry(on=(ReadError,))
+@ci.retry(on=(ReadError,), attempts=5)
 def cosign_check(args):
-    """`cosign verify <args>`: returns when verified, raises NotVerified at once (cosign said no) or ReadError after the retries (it could not complete)."""
+    """`cosign verify <args>`: returns when verified, raises NotVerified at once (cosign said the signature is missing or wrong) or ReadError after the retries (it could not
+    complete, or the image or tag is not visible yet: 5 tries, 5 to 20 s apart)."""
     proc = ci.run(["cosign", "verify", *args], capture=True)
     if proc.returncode == 0:
         return
@@ -109,7 +118,14 @@ def push(local_image, target):
     return value
 
 
-@ci.retry(on=(ci.NetworkError,))
+@ci.retry(on=(ci.NetworkError,), attempts=5)
 def sign(reference):
     """`cosign sign` of image@digest with the key in COSIGN_PRIVATE_KEY, in the old bundle format (https://github.com/containers/container-libs/issues/388)."""
     write(["cosign", "sign", "-y", "--new-bundle-format=false", "--use-signing-config=false", "--key", "env://COSIGN_PRIVATE_KEY", reference])
+
+
+@ci.retry(on=(ReadError, NotVerified), attempts=5)
+def cosign_check_fresh(args):
+    """`cosign verify` of something written seconds ago (a signature just made, a tag just copied): the registry may not show it yet, so "no signatures found" is retried too
+    (5 tries, 5 to 20 s apart) before it counts as NotVerified. A wrong signature fails the same way, only later."""
+    return cosign_check.__wrapped__(args)

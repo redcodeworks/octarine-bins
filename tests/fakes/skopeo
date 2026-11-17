@@ -17,6 +17,8 @@ if count_file:
     count_file.write_text(str(calls))
 
 mode = os.environ.get("MODE", "ok")  # ok | absent | down | flaky (fails twice, then works) | empty
+# DIGEST_LAG=N: the first N reads of an image BY DIGEST fail the way GHCR answered in CI, although the tag that gave the digest was just read fine (counted in DIGEST_LAG_FILE)
+lag_file = Path(os.environ["DIGEST_LAG_FILE"]) if "DIGEST_LAG_FILE" in os.environ else None
 state = Path(os.environ["STATE"]) if "STATE" in os.environ else None
 
 
@@ -27,6 +29,11 @@ def fail(message):
 
 if args[0] == "inspect":
     flag, ref = args[-2], args[-1].removeprefix("docker://")
+    if lag_file and "@sha256:" in ref:
+        seen = int(lag_file.read_text()) if lag_file.exists() else 0
+        lag_file.write_text(str(seen + 1))
+        if seen < int(os.environ["DIGEST_LAG"]):
+            fail(f'time="2026-11-17T04:56:00Z" level=fatal msg="Error parsing image name \\"docker://{ref}\\": reading manifest {ref.split("@")[1]} in ghcr.io/o/i: manifest unknown"')
     if mode == "absent":
         fail("Error: reading manifest x in ghcr.io/o/i: manifest unknown")
     if mode == "down":
