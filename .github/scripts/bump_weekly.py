@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The weekly pin bump: ONE INDEPENDENT pull request into testing PER PIN that moved. Usage: bump_weekly.py   (env GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL; DRY_RUN=1; BUMP_BASE, BUMP_PINS, REPO_ROOT for the tests)
+"""The weekly pin bump: ONE INDEPENDENT pull request into testing PER PIN that moved. Usage: bump_weekly.py   (env GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL; DRY_RUN=1; BUMP_PINS required: the pin(s) to check, space separated, set per job by the workflow matrix; BUMP_BASE, REPO_ROOT for the tests)
 
 Every pin starts from current testing on its own branch bump/<pin>-YYYYMMDD with ONE commit (the pin change, made by bump_run.py), so the PRs are not a chain and touch different
 pin lines, and any subset can be merged in any order. Rules:
@@ -95,7 +95,10 @@ def main(argv=None):
     ci.arg_parser(__doc__).parse_args(argv)
     os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
     base = os.environ.get("BUMP_BASE", "testing")
-    pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder python-deps python").split()
+    pins = os.environ.get("BUMP_PINS", "").split()  # the workflow matrix is the only list of pins; a hand run names them
+    if not pins:
+        ci.log.error("BUMP_PINS is empty: name the pin(s) to check, e.g. BUMP_PINS='scx extest' (the workflow sets it from its matrix)")
+        return 1
     dry = bool(os.environ.get("DRY_RUN"))
     if git("fetch", "-q", "origin", base).returncode != 0:
         ci.log.error(f"cannot fetch {base}")
