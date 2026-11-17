@@ -103,3 +103,24 @@ def test_ghostty_waits_when_ziglang_has_no_tarball_of_the_minor_yet(root, tmp_pa
 def test_ghostty_current_when_the_pin_is_the_newest_stable_tag(root, tmp_path, monkeypatch):
     ghostty_world(monkeypatch, tmp_path, root, lambda t: [t, "tip"], ZON, {ZIG: ENTRY})
     assert ghostty_check.check(root)[0] == "current"
+
+
+def test_the_zig_index_download_is_retried_and_bad_json_is_not(monkeypatch):
+    monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
+    monkeypatch.setenv("RETRY_DELAY", "0")
+    calls = []
+
+    def flaky(url, timeout):
+        calls.append(1)
+        if len(calls) < 3:
+            raise OSError("timed out")
+        import io
+        return io.BytesIO(b'{"0.17.1": {}}')
+
+    monkeypatch.setattr(ghostty_check.urllib.request, "urlopen", flaky)
+    assert ghostty_check.load_index() == {"0.17.1": {}} and len(calls) == 3
+    calls.clear()
+    monkeypatch.setattr(ghostty_check.urllib.request, "urlopen", lambda url, timeout: (calls.append(1), __import__("io").BytesIO(b"not json"))[1])
+    assert ghostty_check.load_index() is None and len(calls) == 1
+    monkeypatch.setattr(ghostty_check.urllib.request, "urlopen", lambda url, timeout: (_ for _ in ()).throw(OSError("down")))
+    assert ghostty_check.load_index() is None

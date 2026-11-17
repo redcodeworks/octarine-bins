@@ -18,7 +18,6 @@ import json
 import os
 import re
 import sys
-import time
 import urllib.request
 from pathlib import Path
 
@@ -29,22 +28,22 @@ import pins  # noqa: E402
 ZIG_INDEX_URL = "https://ziglang.org/download/index.json"
 
 
+@ci.retry(on=(OSError,))
+def download_index():
+    """The bytes of ziglang.org's index.json; a network error (URLError and timeouts are OSErrors) is retried, see ci.retry."""
+    with urllib.request.urlopen(ZIG_INDEX_URL, timeout=30) as r:
+        return r.read()
+
+
 def load_index():
-    """index.json of ziglang.org as a dict, or None (from ZIG_INDEX_FILE when set, else downloaded; two retries)."""
+    """index.json of ziglang.org as a dict, or None (from ZIG_INDEX_FILE when set, else downloaded; invalid JSON is not retried)."""
     local = os.environ.get("ZIG_INDEX_FILE")
-    for attempt in range(1 if local else 3):
-        try:
-            if local:
-                data = Path(local).read_bytes()
-            else:
-                with urllib.request.urlopen(ZIG_INDEX_URL, timeout=30) as r:
-                    data = r.read()
-            index = json.loads(data)
-            return index if isinstance(index, dict) else None
-        except (OSError, ValueError):
-            if not local and attempt < 2:
-                time.sleep(attempt + 1)
-    return None
+    try:
+        data = Path(local).read_bytes() if local else download_index()
+        index = json.loads(data)
+    except (OSError, ValueError):
+        return None
+    return index if isinstance(index, dict) else None
 
 
 def check(root):
