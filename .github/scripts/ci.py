@@ -157,23 +157,39 @@ def version(tag: str) -> Version:
 
 
 def inputs(directory: str) -> list[str]:
-    """The paths a binaries image is built from, in order: the ONE place that says what rebuilds which image: the directories whose content IS the image, and what decides HOW
-    it is built (the Justfile, the shared build action, the layout checker, the push script, the image's own caller workflow). A change to src/lib or the builder therefore
-    rebuilds all three images, dx/ only dx, gx/ only gx, installer/ all three. Docs, tests, other workflows and scripts rebuild nothing.
+    """What lands in an image, derived from its Containerfile's COPY lines: the ONE definition, used by the build skip and by the promotion guard alike.
+
+    src: the whole `src/` (Containerfile, components.tsv, builder.env, lib, the components, packages) and `installer/`. dx and gx: their Containerfile, components.tsv and
+    packages/, the one shared helper they copy (`src/lib/assemble.sh`), the builder pin (`src/builder.env`) and `installer/`. Markdown files are left out (see `content_id`).
+    Not inputs: the Justfile, `.github/**`, tests, READMEs and docs; a change to those builds nothing (see CLAUDE.md, "Skipping a build").
     """
     match directory:
         case "src":
-            workflow, trees = "binaries.yml", ["src", "installer"]
+            return ["src", "installer"]
         case "dx" | "gx":
-            workflow, trees = f"binaries-{directory}.yml", [directory, "src/lib", "src/builder.env", "installer"]
+            return [f"{directory}/Containerfile", f"{directory}/components.tsv", f"{directory}/packages", "src/lib/assemble.sh", "src/builder.env", "installer"]
         case _:
             raise ValueError(f"unknown image directory '{directory}' (src, dx or gx)")
-    return trees + ["Justfile", f".github/workflows/{workflow}", ".github/actions/build-image", ".github/scripts/push_image.py", ".github/scripts/binaries_layout.py"]
 
 
-def inputs_tag(directory: str, commit: str = "HEAD") -> str:
-    """The registry tag that names the inputs of an image: `inputs-` and 24 hex digits of the sha256 of `git ls-tree -r <commit> -- <inputs>` (file modes, blob ids and paths, so the
-    same files give the same tag in any commit). The push step points it at the digest it pushed; binaries_skip and binaries_promote ask the registry which digest these inputs gave.
-    A tag, not a label: a label would be part of the digest, and the digest must change only when the image's content does."""
-    out = run(["git", "ls-tree", "-r", commit, "--", *inputs(directory)], capture=True).stdout
-    return "inputs-" + hashlib.sha256(out).hexdigest()[:24]
+def has_commit(rev: str) -> bool:
+    try:
+        git("cat-file", "-e", f"{rev}^{{commit}}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+def fetch_commit(rev: str) -> bool:
+    """True when the commit is in this checkout, fetched from origin when missing (a shallow CI checkout does not have the commit an older image was built from)."""
+    if not has_commit(rev):
+        run(["git", "fetch", "-q", "--depth=1", "origin", rev], capture=True)
+    return has_commit(rev)
+
+
+def content_id(commit: str, directory: str) -> str:
+    """sha256 over `git ls-tree -r <commit> -- <inputs>` (modes, blob ids, paths) without the `*.md` files: one value for the content of an image at a commit. Equal values mean
+    the same image content, whatever else changed in between."""
+    out = git("ls-tree", "-r", commit, "--", *inputs(directory))  # a bad commit raises CalledProcessError, never an empty hash
+    lines = [line for line in out.splitlines() if not line.endswith(".md")]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()

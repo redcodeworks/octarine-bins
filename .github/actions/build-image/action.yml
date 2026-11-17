@@ -2,7 +2,7 @@ name: Build a binaries image
 description: >-
   The build steps shared by the three images (octarine-bins, octarine-bins-dx, octarine-bins-gx), run inside the caller's `build` job (a composite action, not a reusable
   workflow, so the job keeps the name the ruleset requires). Names the image, decides the channel (only testing publishes), skips when testing already is the signed
-  build of the same inputs (binaries_skip.py), builds with the layer cache <image>-cache, checks the layout and pushes ONE immutable version tag. Signing and moving
+  build of the same image content (binaries_skip.py), builds with the layer cache <image>-cache, checks the layout and pushes ONE immutable version tag. Signing and moving
   `testing` are the caller's sign job (sign-image). The caller checks out the repository first.
 inputs:
   name:
@@ -98,7 +98,7 @@ runs:
       run: |
         export BUILD_ARGS="--layers --cache-from ${IMAGE}-cache"
         [[ "${PUBLISH}" != true ]] || BUILD_ARGS+=" --cache-to ${IMAGE}-cache"
-        just build "${NAME}:${VERSION}" "${DIR}"
+        just build "${NAME}:${VERSION}" "${VERSION}" "${GITHUB_SHA}" "${DIR}"
 
     - name: Check the layout
       if: steps.skip.outputs.skip != 'true'
@@ -116,7 +116,6 @@ runs:
       shell: bash
       env:
         NAME: ${{ inputs.name }}
-        DIR: ${{ inputs.dir }}
         IMAGE: ${{ steps.names.outputs.image }}
         VERSION: ${{ steps.names.outputs.version }}
-      run: uv run --frozen --no-dev python -I .github/scripts/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}" "${DIR}"
+      run: uv run --frozen --no-dev python -I .github/scripts/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
