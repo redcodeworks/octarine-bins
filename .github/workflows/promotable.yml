@@ -33,23 +33,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      - name: Check that testing can be promoted (binaries_promote.py --check, no retag)
+        uses: ./.github/actions/promote-image
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Set up Python and uv
-        uses: ./.github/actions/setup-ci-python
-
-      - name: Set up cosign
-        uses: ./.github/actions/setup-tool
-        with:
-          tool: cosign
-
-      - name: Check that testing can be promoted
-        env:
-          NAME: ${{ matrix.name }}
-          DIR: ${{ matrix.dir }}
-        run: uv run --frozen --no-dev python -I .github/scripts/binaries_promote.py --check "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"
+          name: ${{ matrix.name }}
+          dir: ${{ matrix.dir }}
+          check: --check
