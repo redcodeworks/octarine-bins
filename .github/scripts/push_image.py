@@ -2,7 +2,7 @@
 """Push the built image under ONE tag and print its manifest digest, which the signature belongs to. Usage: push_image.py <local-image> <registry-image> <tag>
 
 registry.push writes the digest of the manifest it pushed (retried); the registry must then show that digest for the tag (registry.settled polls, because a read right after a write
-may still answer with the previous manifest). A tag that already exists is never overwritten (a rerun of the same commit on the same day builds a different digest, because the labels and `built=` carry the time): the
+may still answer with the previous manifest). A tag that already exists is never overwritten (a rerun of the same commit on the same day builds a different digest, because the stamp carries the time): the
 existing digest is kept and used, which is the image that passed the layout check and may already be signed. Other tags (`testing`, `latest`) are never pushed from here: they are registry-side copies of this digest made after it was signed.
 Prints `digests=<digest>` and appends it to $GITHUB_OUTPUT. Tools: podman, skopeo.
 """

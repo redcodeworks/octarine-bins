@@ -18,13 +18,12 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
     # --jobs 3: the three component stages are independent and build at the same time
     ${PODMAN:-podman} build --jobs 3 ${BUILD_ARGS:-} \
         --build-arg "BUILDER=${builder}" \
-        --build-arg "IMAGE_VERSION={{ version }}" \
-        --build-arg "IMAGE_REVISION={{ revision }}" \
-        --build-arg "IMAGE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --tag "{{ image }}" \
         --build-context lib=src/lib \
         --build-context installer=installer \
         --file {{ dir }}/Containerfile {{ dir }}
+    # the stamp (version, revision, created labels) is a separate no-cache step, so a cache-served build is stamped too (stamp_image.py)
+    uv run --frozen --no-dev python -I .github/scripts/stamp_image.py "{{ image }}" "{{ version }}" "{{ revision }}"
 
 # Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component; every image carries /packages
 layout image="octarine-bins:dev" dir="src":
