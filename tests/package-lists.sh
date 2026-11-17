@@ -35,7 +35,7 @@ echo "dnf5 $*" >> "${STUB_LOG}"
 case " $* " in
     *" copr enable "*) [[ -z "${COPR_FAIL:-}" ]]; exit $? ;;
     *" copr "*) exit 0 ;;
-    *" repoquery "*) n="${@: -1}"; grep -Fxq -- "$n" "${STUB_AVAILABLE}" && echo "$n"; exit 0 ;;
+    *" repoquery "*) cat > /dev/null; n="${@: -1}"; grep -Fxq -- "$n" "${STUB_AVAILABLE}" && echo "$n"; exit 0 ;;
     *" install "*)
         pk=()
         for a in "$@"; do case "$a" in -* | install) ;; *) pk+=("$a") ;; esac; done
@@ -56,7 +56,7 @@ entries() { sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$1"; }
 avail_all() { for f in "$1"/packages/*.txt; do case "$f" in *-copr.txt) entries "$f" | sed 's/^[^:]*://' ;; *) entries "$f" | tr '|' '\n' | grep -v '^@' | grep -vx 'libgit2-devel' ;; esac; done > "$STUB_AVAILABLE"; }
 # /packages as the Containerfile of an image lays it out: the image's lists plus the shared installer
 mk_packages() { rm -rf "$root/img"; mkdir -p "$root/img/packages"; cp "$here/$1/packages/"* "$here"/installer/install.sh "$root/img/packages/"; p="$root/img/packages"; }
-run() { : > "$STUB_LOG"; rm -f "$STUB_COUNT" "$root/missing"; env "$@" MISSING_FILE="$root/missing" bash "$p/install.sh"; }
+run() { : > "$STUB_LOG"; rm -f "$STUB_COUNT" "$root/missing"; env "$@" MISSING_FILE="$root/missing" bash "$p/install.sh" < /dev/null; }
 
 # --- every image: the real lists, installed from /packages with everything available: exit 0, nothing missing, no call without its package list
 for d in src dx gx; do
@@ -116,5 +116,12 @@ check "required: an entry whose alternatives all lack fails the build" test "$rc
 rm -f "$root/o"/*; printf 'o/p:Pkg-1.0-1.fc45\n' > "$root/o/optional-copr.txt"; echo Pkg-1.0-1.fc45 > "$STUB_AVAILABLE"
 rm -f "$root/missing"; orun COPR_FAIL=1
 check "optional COPR: a COPR that cannot be enabled is reported as missing, the build does not fail, the COPR is still disabled" bash -c "[ $rc = 0 ] && grep -qx 'Pkg-1.0-1.fc45' '$root/missing' && grep -qx 'dnf5 -y copr disable o/p' '$STUB_LOG'"
+
+# --- an `a|b` line in the MIDDLE of a list must not swallow the entries after it (the real dnf5 reads stdin; the stub does too): all of them reach the install call
+rm -rf "$root/img"; mkdir -p "$root/img/packages"; cp "$here"/installer/install.sh "$root/img/packages/"; p="$root/img/packages"
+printf 'alpha\nbeta-old|beta\ngamma\ndelta\nepsilon\n' > "$p/required-fedora.txt"
+printf 'alpha\nbeta\ngamma\ndelta\nepsilon\n' > "$STUB_AVAILABLE"
+: > "$STUB_LOG"; env MISSING_FILE="$root/missing" bash "$p/install.sh" > "$root/out" 2>&1 < /dev/null; rc=$?
+check "an alternatives line in the middle of a list: every later entry is installed" bash -c "[ $rc = 0 ] && grep ' install ' '$STUB_LOG' | head -1 | tr ' ' '\n' | tr '\n' ' ' | grep -q ' alpha beta gamma delta epsilon '"
 echo; echo "passed: $pass, failed: $failn"
 [ "$failn" = 0 ]
