@@ -5,7 +5,7 @@
 #
 # Per component: scx needs scx/bin/<name> for every scheduler of the manifest and scx/schedulers.tsv; extest both libraries; every
 # component needs <c>/SOURCE, <c>/BUILDINFO and <c>/LICENSES/*. The assembled image is checked with --assembled, which also needs the top-level SOURCE, BUILDINFO, LICENSES/ and COMPONENTS and
-# exactly the named components. --allow-empty (the dx and gx images, never the base) accepts zero components: then only COMPONENTS and BUILDINFO are required. --packages (dx and gx, never the base) also requires packages/<file> for each name in the quoted list (the lists and the installers) and allows the top-level `packages` directory; the base must not have one. Nothing else is judged here (the build already ran the smoke tests and the ELF checks).
+# exactly the named components. --allow-empty (the dx and gx images, never the base) accepts zero components: then only COMPONENTS and BUILDINFO are required. --packages (every image) also requires packages/<file> for each name in the quoted list (the image's lists and the installer) and allows the top-level `packages` directory. Nothing else is judged here (the build already ran the smoke tests and the ELF checks).
 set -euo pipefail
 assembled=0 allow_empty=0 packages=""
 while [[ "${1:-}" == --* ]]; do

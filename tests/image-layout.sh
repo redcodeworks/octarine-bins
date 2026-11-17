@@ -49,16 +49,19 @@ check "an empty image without BUILDINFO fails" bash -c "[ $rc != 0 ] && grep -q 
 check "assemble.sh without --allow-empty still refuses an empty component list (the base)" bash -c "! bash '$here/src/lib/assemble.sh' '$img' '$here/dx/components.tsv'"
 mk_image; rm -rf "$img/extest" "$img/ghostty"; elayout --allow-empty scx extest ghostty
 check "an incomplete base (extest and ghostty missing) fails even with --allow-empty" bash -c "[ $rc != 0 ] && grep -q 'lacks extest/lib/libextest.so' '$root/run'"
-# /packages (dx and gx): the real assembler, then the packages tree as the Containerfile lays it out (the image's lists plus the shared installers), read by the layout check with the
-# file list `just layout` builds. A missing list or installer fails, and the base never carries the directory.
-pimage() { empty_image; mkdir -p "$img/packages"; cp "$here/$1/packages/"* "$here"/installer/*.sh "$img/packages/"; }
-players() { (cd "$img" && find . -mindepth 1 | sed 's#^\./##' | sort) > "$root/listing"; local d=$1; shift; bash "$here/.github/scripts/binaries-layout.sh" --assembled --allow-empty --packages "$(ls "$here/$d/packages" | tr '\n' ' ')install.sh install-copr.sh" "$root/listing" "$tsv" "$@" > "$root/run" 2>&1; rc=$?; }
-for d in dx gx; do pimage $d; players $d; check "$d image with /packages (its lists, install.sh, install-copr.sh) passes" test "$rc" = 0; done
-pimage gx; rm "$img/packages/negativo17.txt"; players gx
-check "a missing list in /packages fails and is named" bash -c "[ $rc != 0 ] && grep -q 'lacks packages/negativo17.txt' '$root/run'"
-pimage dx; rm "$img/packages/install.sh"; players dx
+# /packages (every image): the packages tree as the Containerfile lays it out (the image's lists plus the shared installer), read by the layout check with the file list `just layout`
+# builds. A missing list or installer fails, and an image without --packages (a layout check that does not expect /packages) rejects the directory.
+pimage() { if [[ "$1" == src ]]; then mk_image; else empty_image; fi; mkdir -p "$img/packages"; cp "$here/$1/packages/"* "$here"/installer/install.sh "$img/packages/"; }
+players() { (cd "$img" && find . -mindepth 1 | sed 's#^\./##' | sort) > "$root/listing"; local d=$1; shift; bash "$here/.github/scripts/binaries-layout.sh" --assembled "$@" --packages "$(ls "$here/$d/packages" | tr '\n' ' ')install.sh" "$root/listing" "$tsv" $comps > "$root/run" 2>&1; rc=$?; }
+pimage src; players src; check "base image with /packages (its lists and install.sh) passes" test "$rc" = 0
+comps_save=$comps; comps=""
+for d in dx gx; do pimage $d; players $d --allow-empty; check "$d image with /packages (its lists and install.sh) passes" test "$rc" = 0; done
+pimage gx; rm "$img/packages/required-negativo17.txt"; players gx --allow-empty
+check "a missing list in /packages fails and is named" bash -c "[ $rc != 0 ] && grep -q 'lacks packages/required-negativo17.txt' '$root/run'"
+pimage dx; rm "$img/packages/install.sh"; players dx --allow-empty
 check "a missing installer in /packages fails" bash -c "[ $rc != 0 ] && grep -q 'lacks packages/install.sh' '$root/run'"
 pimage dx; elayout --allow-empty
-check "a /packages directory without --packages (the base) is an unexpected top-level entry" bash -c "[ $rc != 0 ] && grep -q 'unexpected top-level' '$root/run'"
+check "a /packages directory without --packages is an unexpected top-level entry" bash -c "[ $rc != 0 ] && grep -q 'unexpected top-level' '$root/run'"
+comps=$comps_save
 echo; echo "passed: $pass, failed: $failn"
 [ "$failn" = 0 ]

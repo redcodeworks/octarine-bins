@@ -26,7 +26,7 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
         --build-context installer=installer \
         --file {{ dir }}/Containerfile {{ dir }}
 
-# Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component and carry /packages
+# Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component; every image carries /packages
 layout image="octarine-bins:dev" dir="src":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -34,8 +34,8 @@ layout image="octarine-bins:dev" dir="src":
     id=$(${PODMAN:-podman} create "{{ image }}" /nonexistent)
     ${PODMAN:-podman} export "${id}" | tar -t > "${listing}"
     ${PODMAN:-podman} rm "${id}" > /dev/null
-    # dx and gx: no binary component needed, and /packages (their lists and the installers) is required
-    extra=(); [[ "{{ dir }}" == src ]] || extra=(--allow-empty --packages "$(ls {{ dir }}/packages | tr '\n' ' ')install.sh install-copr.sh")
+    # every image: /packages (its lists and the installer) is required; dx and gx also need no binary component
+    extra=(--packages "$(ls {{ dir }}/packages | tr '\n' ' ')install.sh"); [[ "{{ dir }}" == src ]] || extra+=(--allow-empty)
     .github/scripts/binaries-layout.sh --assembled "${extra[@]}" "${listing}" src/scx/schedulers.tsv $(grep -vE '^[[:space:]]*(#|$)' {{ dir }}/components.tsv | cut -f1)
 
 # Run the tests
