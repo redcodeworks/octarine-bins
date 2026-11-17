@@ -13,6 +13,17 @@ Two more images follow the same pattern for the other octarine-os variants:
 
 The base image also carries the package lists of the default octarine-os image. Each of the three is built, signed and published on its own.
 
+## Build status
+
+| Image | main | testing |
+|---:|---:|---:|
+| base | [![base, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Amain) | [![base, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Atesting) |
+| dx | [![dx, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml?query=branch%3Amain) | [![dx, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml?query=branch%3Atesting) |
+| gx | [![gx, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml?query=branch%3Amain) | [![gx, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml?query=branch%3Atesting) |
+| checks | not run on main | [![checks, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml?query=branch%3Atesting) |
+
+The badges show the build and signing of each image (`octarine-bins`, `-dx`, `-gx`); a new workflow shows "no status" until its first run. Each image moves its own `latest` after its own build, so they do not wait for each other. `dx` and `gx` carry package lists but no binaries yet.
+
 ## Why
 
 octarine-os is a bootc image built every day. Compiling Rust, Zig and BPF programs inside that build would make it slow and fragile, and an upstream hiccup would stop the whole OS build. Building the programs here, once, and publishing the result keeps the OS build short and keeps its inputs simple: it reads `octarine-bins:latest` and nothing else. `latest` only moves after a build here succeeded as a whole, was signed and was approved, so if any program fails to build, nothing new is published and the OS keeps using the previous binaries.
