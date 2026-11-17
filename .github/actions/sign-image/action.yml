@@ -39,15 +39,12 @@ runs:
     - name: Set up Python and uv
       if: inputs.skipped != 'true'
       uses: ./.github/actions/setup-ci-python
-      with:
-        cache: "false"  # this job holds the signing key: it installs from the frozen lock and restores nothing
 
     - name: Set up cosign
       if: inputs.skipped != 'true'
       uses: ./.github/actions/setup-tool
       with:
         tool: cosign
-        cache: "false"  # no cached executable runs next to the signing key: the pinned installer downloads and verifies cosign every time
 
     - name: Sign, then move testing
       if: inputs.skipped != 'true'
