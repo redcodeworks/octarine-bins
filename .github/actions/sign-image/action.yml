@@ -47,6 +47,7 @@ runs:
       uses: ./.github/actions/setup-tool
       with:
         tool: cosign
+        cache: "false"  # no cached executable runs next to the signing key: the pinned installer downloads and verifies cosign every time
 
     - name: Sign, then move testing
       if: inputs.skipped != 'true'
