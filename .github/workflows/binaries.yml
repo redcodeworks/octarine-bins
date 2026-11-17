@@ -6,12 +6,12 @@ name: Binaries image
 # `latest` of its images; only the promote job below moves `latest`.
 #
 # On testing (every push, or a dispatch): `build` builds the image, checks its layout and pushes it under an immutable version tag (<date>-<short sha>);
-# `sign` signs that digest and only THEN moves `testing` to it, so nobody ever sees an unsigned `testing`. A push whose build inputs (binaries-inputs.sh src) equal those of
-# the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries-skip.sh): both jobs still run and succeed, their steps are skipped
+# `sign` signs that digest and only THEN moves `testing` to it, so nobody ever sees an unsigned `testing`. A push whose build inputs (ci.inputs("src")) equal those of
+# the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries_skip.py): both jobs still run and succeed, their steps are skipped
 # (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The build reads and (on testing) writes a layer cache in the separate
 # package octarine-bins-cache; the cache only saves time, the layout check and the signature decide what is published.
 #
-# On main (the promotion of testing into main, or a dispatch): `promote` retags the tested, signed `testing` image to `latest` (binaries-promote.sh; no rebuild).
+# On main (the promotion of testing into main, or a dispatch): `promote` retags the tested, signed `testing` image to `latest` (binaries_promote.py; no rebuild).
 # It fails unless `testing` exists and verifies with cosign.pub. Main builds nothing: it promotes the image that was built, signed and approved on testing.
 #
 # Any other ref (a dispatch from a branch) builds for validation only and publishes nothing. To rebuild by hand: `gh workflow run binaries.yml --ref testing`; to promote
@@ -84,7 +84,7 @@ jobs:
           skipped: ${{ needs.build.outputs.skipped }}
           key: ${{ secrets.SIGNING_SECRET }}
 
-  # main: the testing image becomes latest (see binaries-promote.sh). Nothing else moves latest.
+  # main: the testing image becomes latest (see binaries_promote.py). Nothing else moves latest.
   promote:
     name: Promote the tested binaries image
     if: github.ref == 'refs/heads/main'

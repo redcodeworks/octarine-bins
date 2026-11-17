@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""The weekly pin bump: ONE INDEPENDENT pull request into testing PER PIN that moved. Usage: bump_weekly.py   (env GH_TOKEN, GITHUB_REPOSITORY; DRY_RUN=1; BUMP_BASE, BUMP_PINS, REPO_ROOT for the tests)
+
+Every pin starts from current testing on its own branch bump/<pin>-YYYYMMDD with ONE commit (the pin change, made by bump_run.py), so the PRs are not a chain and touch different
+pin lines, and any subset can be merged in any order. Rules:
+  - the pin already equals upstream (testing has it): nothing is opened; an open bump PR of that pin is closed with a comment (stale);
+  - an open bump PR of the pin already carries the value upstream has now: it stays as it is, nothing new (idempotent reruns);
+  - an open bump PR of the pin carries an OLDER value (upstream moved again): a new branch (bump/<pin>-YYYYMMDD-2 ...: a new name, no force-push is ever used) and a new PR are
+    made, and the older one is closed with a comment pointing at the new one, so at most one bump PR per pin stays open;
+  - a failing pin changes nothing, turns the run red and does not stop the other pins.
+Every new PR gets the required `test` and `secrets` check runs from bump_checks.py (keyed by its commit sha, so parallel PRs do not collide). DRY_RUN=1 does every decision locally and
+prints what it would open, keep or close, pushing and opening nothing. A real run needs HEAD to be origin/testing (the workflow checks testing out).
+"""
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import ci  # noqa: E402
+
+NOTES = {
+    "scx": " Check the scheduler READMEs when scx moves.",
+    "builder": " A builder bump changes the `FROM` of every stage: every component rebuilds once, with no layer cache hit.",
+    "ghostty": " Zig moves only inside this commit (a Ghostty tag needs its Zig minor), never on its own.",
+}
+BODY = """One commit, one pin; this pull request is independent of the other bump pull requests (merge any subset, in any order, and close the rest).
+
+| pin | from | to | what changed upstream | days the new value has existed |
+|---|---|---|---|---|
+| {row} |
+
+Only the pin lines change.{note} Verified: the decision script compared the pin with upstream and the writer changed only the pin files. Not verified: nothing was built or booted by the bump; the build on `{base}` after the merge is the first build with this pin. The owner merges this pull request.
+
+Checks: this commit is tested by the `Test` workflow (dispatched on `{base}` for it, because a pull request opened with the workflow token starts no workflow itself) and its `test` and `secrets` results are reported here as check runs. If they are missing, run the bump workflow again (`gh workflow run bump-pins.yml --ref {base}`): it makes a new branch and pull request and closes this one.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)"""
+
+
+def git(*args):
+    return subprocess.run(["git", *args], capture_output=True, text=True)
+
+
+def summary(line):
+    print(line)
+    ci.append_to("GITHUB_STEP_SUMMARY", line)
+
+
+def row_of(rev):
+    """The pin row of a commit: the first line of its body (pin | from | to | what changed upstream | days)."""
+    return (git("log", "-1", "--format=%b", rev).stdout.splitlines() or [""])[0]
+
+
+def to_of(rev):
+    fields = row_of(rev).split(" | ")
+    return fields[2] if len(fields) > 2 else ""
+
+
+def open_prs(pin, base):
+    """(number, branch) of every open PR into the base whose branch is bump/<pin>-..."""
+    proc = subprocess.run(["gh", "pr", "list", "--base", base, "--state", "open", "--json", "number,headRefName"], capture_output=True, text=True)
+    try:
+        prs = json.loads(proc.stdout)
+    except ValueError:
+        return []
+    return [(pr["number"], pr["headRefName"]) for pr in prs if pr["headRefName"].startswith(f"bump/{pin}-")]
+
+
+def close_pr(number, comment):
+    if subprocess.run(["gh", "pr", "close", str(number), "--delete-branch", "--comment", comment]).returncode != 0:
+        ci.warning(f"could not close #{number}")
+
+
+def main():
+    os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
+    base = os.environ.get("BUMP_BASE", "testing")
+    pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder").split()
+    dry = bool(os.environ.get("DRY_RUN"))
+    if git("fetch", "-q", "origin", base).returncode != 0:
+        ci.error(f"cannot fetch {base}")
+        return 1
+    start = git("rev-parse", "HEAD").stdout.strip()
+    if not dry and start != git("rev-parse", f"origin/{base}").stdout.strip():
+        ci.error(f"a real run must start from origin/{base} (this checkout is not it); use dry_run to try another ref")
+        return 1
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    summary("## Pin bumps")
+    failed = False
+
+    for p in pins:
+        if git("checkout", "-q", "--detach", start).returncode != 0:
+            failed = True
+            continue
+        branch, n = f"bump/{p}-{day}", 1
+        while not dry and git("ls-remote", "--exit-code", "--heads", "origin", branch).returncode == 0:
+            n += 1
+            branch = f"bump/{p}-{day}-{n}"
+        if git("checkout", "-q", "-B", branch).returncode != 0:
+            failed = True
+            continue
+        if subprocess.run([sys.executable, "-I", str(HERE / "bump_run.py"), p]).returncode != 0:
+            failed = True
+            continue
+        pending = open_prs(p, base)
+        if not git("rev-list", f"{start}..HEAD").stdout.strip():
+            for number, _ in pending:
+                if dry:
+                    summary(f"Dry run: would close #{number} ({p}: testing already has the upstream value)")
+                else:
+                    close_pr(number, f"Closing: `{p}` already equals upstream on `{base}`, so this bump is not needed any more.")
+            continue
+        commit = git("rev-parse", "HEAD").stdout.strip()
+        row, to = row_of(commit), to_of(commit)
+        if " | " not in row:
+            ci.error(f"{p}: the bump commit has no table row")
+            failed = True
+            continue
+        keep = None
+        for number, pr_branch in pending:
+            if git("fetch", "-q", "origin", pr_branch).returncode == 0 and to_of("FETCH_HEAD") == to:
+                keep = number
+        if keep:
+            summary(f"`{p}`: #{keep} already proposes {to}; nothing new")
+            continue
+        fields = row.split("|")
+        title = f"Bump {p}: {fields[1].strip()} to {fields[2].strip()}"[:140]
+        body = BODY.format(row=row, note=NOTES.get(p, ""), base=base)
+        if dry:
+            summary(f"Dry run: would open {branch} ({commit[:7]}), title: {title}")
+            for number, pr_branch in pending:
+                summary(f"Dry run: would close the older #{number} ({pr_branch}), superseded")
+            summary(body)
+            continue
+        if git("push", "-q", "origin", f"refs/heads/{branch}:refs/heads/{branch}").returncode != 0:
+            ci.error(f"cannot push {branch}")
+            failed = True
+            continue
+        created = subprocess.run(["gh", "pr", "create", "--base", base, "--head", branch, "--title", title, "--body", body], capture_output=True, text=True)
+        if created.returncode != 0:
+            ci.error(f"Could not open the pull request for {p}. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?")
+            failed = True
+            continue
+        url = created.stdout.strip()
+        summary(f"`{p}`: opened {url}")
+        for number, _ in pending:
+            close_pr(number, f"Superseded by {url}: upstream moved again, so `{p}` has a newer bump pull request.")
+        subprocess.run([sys.executable, "-I", str(HERE / "bump_checks.py"), branch, commit])
+    git("checkout", "-q", "--detach", start)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

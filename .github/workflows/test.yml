@@ -1,6 +1,6 @@
 name: Test
-# The run of a push is named after the commit; a dispatch with `ref` (the bump workflow tests a bump branch tip from the testing ref, see bump-checks.sh) is named
-# "Test of <sha>" so bump-checks.sh finds it. A dispatch on a branch itself (no ref) still works.
+# The run of a push is named after the commit; a dispatch with `ref` (the bump workflow tests a bump branch tip from the testing ref, see bump_checks.py) is named
+# "Test of <sha>" so bump_checks.py finds it. A dispatch on a branch itself (no ref) still works.
 run-name: ${{ inputs.ref && format('Test of {0}', inputs.ref) || github.event.head_commit.message || 'Test' }}
 
 # The fast lane: every push to a branch other than main runs the quick checks (`test`) and a secret scan (`secrets`). The ruleset requires both on the pull requests into
@@ -27,7 +27,8 @@ permissions:
   contents: read
 
 jobs:
-  # bash -n on the shell scripts, a parse of the workflow files, the Justfile format and the tests (tests/*.sh: stubbed registry and cosign, no network, a few seconds)
+  # a parse of the shell scripts, Python files and workflow files, the Justfile format and the tests (pytest through uv, plus the installer test: stubbed registry, cosign and dnf5,
+  # no network, a few seconds)
   test:
     name: test
     runs-on: ubuntu-26.04
@@ -40,12 +41,18 @@ jobs:
           persist-credentials: false
 
       - name: Sanity checks
-        run: .github/scripts/sanity.sh
+        run: python3 -I .github/scripts/sanity.py
 
       - name: Set up just
         uses: ./.github/actions/setup-tool
         with:
           tool: just
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.7
+          enable-cache: false
 
       - name: Check Just format
         run: just check

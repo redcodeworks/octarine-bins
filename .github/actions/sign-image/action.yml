@@ -26,7 +26,7 @@ runs:
       if: inputs.skipped == 'true'
       shell: bash
       run: |
-        echo "Nothing built, nothing signed: testing already is the signed build of the same inputs (binaries-skip.sh)" | tee -a "${GITHUB_STEP_SUMMARY}"
+        echo "Nothing built, nothing signed: testing already is the signed build of the same inputs (binaries_skip.py)" | tee -a "${GITHUB_STEP_SUMMARY}"
 
     - name: Login to GitHub Container Registry
       if: inputs.skipped != 'true'
@@ -55,11 +55,11 @@ runs:
         set -euo pipefail
         [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No pushed digest to sign"; exit 1; }
         # the old bundle format, as for the OS images (https://github.com/containers/container-libs/issues/388)
-        .github/scripts/retry.sh cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"
-        .github/scripts/cosign-check.sh --key cosign.pub "${IMAGE}@${DIGEST}"
+        python3 -I .github/scripts/retry.py cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"
+        python3 -I .github/scripts/cosign_check.py --key cosign.pub "${IMAGE}@${DIGEST}"
         # signed: now `testing` may point at it (a registry-side copy, the same digest)
-        .github/scripts/retry.sh skopeo copy --all --preserve-digests "docker://${IMAGE}@${DIGEST}" "docker://${IMAGE}:testing"
-        .github/scripts/registry-settled.sh "${IMAGE}" testing "${DIGEST}"
-        .github/scripts/cosign-check.sh --key cosign.pub "${IMAGE}:testing"
+        python3 -I .github/scripts/retry.py skopeo copy --all --preserve-digests "docker://${IMAGE}@${DIGEST}" "docker://${IMAGE}:testing"
+        python3 -I .github/scripts/registry_settled.py "${IMAGE}" testing "${DIGEST}"
+        python3 -I .github/scripts/cosign_check.py --key cosign.pub "${IMAGE}:testing"
         echo "signed: ${IMAGE}:${VERSION} and :testing = ${DIGEST}"
         echo "Binaries image ${IMAGE##*/} ${VERSION}, signed and published as \`testing\` (digest \`${DIGEST}\`)" >> "${GITHUB_STEP_SUMMARY}"

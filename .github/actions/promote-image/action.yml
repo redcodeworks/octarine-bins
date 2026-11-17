@@ -1,6 +1,6 @@
 name: Promote a tested binaries image
 description: >-
-  The promote steps shared by the three images, run inside the caller's `promote` job on main: retag the tested, signed `testing` image to `latest` (binaries-promote.sh,
+  The promote steps shared by the three images, run inside the caller's `promote` job on main: retag the tested, signed `testing` image to `latest` (binaries_promote.py,
   no rebuild). The caller checks out the repository first.
 inputs:
   name:
@@ -29,4 +29,4 @@ runs:
       env:
         NAME: ${{ inputs.name }}
         DIR: ${{ inputs.dir }}
-      run: .github/scripts/binaries-promote.sh "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"
+      run: python3 -I .github/scripts/binaries_promote.py "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"

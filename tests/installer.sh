@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The package lists of the three images (src, dx, gx) read by the real installer (installer/install.sh) with a stub dnf5 (no network, no root, no podman): the lint rules on
-# the real lists (and on bad fixtures), each image's /packages tree laid out as its Containerfile does and installed from there the way octarine-os will, and the two tiers
-# (strict required transactions; optional files that retry as a whole, then package by package, and report what is missing). Run: tests/package-lists.sh
+# The installer (installer/install.sh) read through the real package lists of the three images (src, dx, gx) with a stub dnf5 (no network, no root, no podman): each image's /packages tree
+# laid out as its Containerfile does and installed from there the way octarine-os will, and the two tiers
+# (strict required transactions; optional files that retry as a whole, then package by package, and report what is missing). The lint of the lists is tests/test_lint_packages.py. Run: tests/installer.sh
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 root=$(mktemp -d)
@@ -10,22 +10,6 @@ pass=0; failn=0
 ok() { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { failn=$((failn + 1)); echo "FAIL $1"; sed 's/^/     /' "$root/out"; }
 check() { local d=$1; shift; if "$@" > "$root/out" 2>&1; then ok "$d"; else bad "$d"; fi; }
-lint="$here/.github/scripts/lint-packages.sh"
-
-# --- lint: the real lists pass, the rules catch what they are for
-for d in src dx gx; do check "$d: the real lists pass the lint" "$lint" "$here/$d"/packages/*.txt; done
-mkdir -p "$root/l"
-printf 'mangohud.i686\n' > "$root/l/required-fedora.txt"
-check "an .i686 entry without an explicit .x86_64 entry fails" bash -c "! '$lint' '$root/l/required-fedora.txt'"
-printf 'mangohud.i686\nmangohud.x86_64\n' > "$root/l/required-fedora.txt"
-check "an .i686 entry with its .x86_64 sibling passes" "$lint" "$root/l/required-fedora.txt"
-printf 'owner/project:Pkg\n' > "$root/l/required-copr.txt"
-check "a COPR entry without version and release fails" bash -c "! '$lint' '$root/l/required-copr.txt'"
-printf 'gcc\n' > "$root/l/required-fedora.txt"; printf 'gcc\n' > "$root/l/optional-fedora.txt"
-check "the same package in the required and the optional list fails" bash -c "! '$lint' '$root/l/required-fedora.txt' '$root/l/optional-fedora.txt'"
-printf 'gcc\n' > "$root/l/fedora.txt"
-check "a list name outside {required,optional}-{fedora,negativo17,copr}.txt fails" bash -c "! '$lint' '$root/l/fedora.txt'"
-
 # --- a stub dnf5: STUB_AVAILABLE is what the repositories have, STUB_LOG records the calls, FAIL_PKGS lists packages that never install, FLAKY_ONCE=1 fails the first
 # multi-package transaction only, COPR_FAIL=1 makes `copr enable` fail
 mkdir -p "$root/bin"
