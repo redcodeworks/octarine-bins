@@ -73,6 +73,6 @@ git -C "$repo" reset -q --hard "$REV"; echo i2 > "$repo/installer/install.sh"; g
 dir=dx; skip X=1
 check "dx: the shared installer changed: skip=false" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
 dir=src; skip X=1
-check "base: the shared installer changed: skip=true (the base carries no installer)" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
+check "base: the shared installer changed: skip=false (every image carries it)" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
 echo; echo "passed: $pass, failed: $failn"
 [ "$failn" = 0 ]
