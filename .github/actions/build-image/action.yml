@@ -2,7 +2,7 @@ name: Build a binaries image
 description: >-
   The build steps shared by the three images (octarine-bins, octarine-bins-dx, octarine-bins-gx), run inside the caller's `build` job (a composite action, not a reusable
   workflow, so the job keeps the name the ruleset requires). Names the image, decides the channel (only testing publishes), skips when testing already is the signed
-  build of the same image content (binaries_skip.py), builds with the layer cache <image>-cache, checks the layout and pushes ONE immutable version tag. Signing and moving
+  build of the same image content (binaries_skip.py), builds (with the layer cache <image>-cache when `cache` is true), checks the layout and pushes ONE immutable version tag. Signing and moving
   `testing` are the caller's sign job (sign-image). The caller checks out the repository first.
 inputs:
   name:
@@ -11,6 +11,10 @@ inputs:
   dir:
     description: Build directory (src, dx or gx)
     required: true
+  cache:
+    description: "Use the layer cache package <image>-cache (true or false). Only the base needs it (Ghostty); dx and gx have tiny stages and build without"
+    required: false
+    default: "true"
 outputs:
   published:
     description: "true when this run publishes (a push to testing)"
@@ -85,7 +89,8 @@ runs:
         tool: just
 
     # the pinned builder, every component in its own stage; any failing stage fails this step and the run
-    # The layer cache is the package <image>-cache (one per image, never the image's own tags): read on every build, written only by testing. An absent cache is a cold build.
+    # The layer cache (input `cache`, true for the base only) is the package <image>-cache (never the image's own tags): read on every build, written only by testing. An absent cache is a cold build.
+    # With cache false there is no --cache-from and no --cache-to, so the package is neither read nor written.
     - name: Build
       if: steps.skip.outputs.skip != 'true'
       shell: bash
@@ -95,9 +100,14 @@ runs:
         VERSION: ${{ steps.names.outputs.version }}
         IMAGE: ${{ steps.names.outputs.image }}
         PUBLISH: ${{ steps.channel.outputs.publish }}
+        CACHE: ${{ inputs.cache }}
       run: |
-        export BUILD_ARGS="--layers --cache-from ${IMAGE}-cache"
-        [[ "${PUBLISH}" != true ]] || BUILD_ARGS+=" --cache-to ${IMAGE}-cache"
+        BUILD_ARGS=""
+        if [[ "${CACHE}" == true ]]; then
+          BUILD_ARGS="--layers --cache-from ${IMAGE}-cache"
+          [[ "${PUBLISH}" != true ]] || BUILD_ARGS+=" --cache-to ${IMAGE}-cache"
+        fi
+        export BUILD_ARGS
         just build "${NAME}:${VERSION}" "${VERSION}" "${GITHUB_SHA}" "${DIR}"
 
     - name: Check the layout

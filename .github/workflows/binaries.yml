@@ -1,7 +1,7 @@
 name: Binaries images
 # Builds, signs and promotes the THREE images of octarine-bins: ghcr.io/redcodeworks/octarine-bins (src/, the base, every octarine-os variant), octarine-bins-dx (dx/) and
 # octarine-bins-gx (gx/). One run per push; `build`, `sign` and `promote` are each a matrix over the variants, and the matrix below is the ONLY list of them: a new variant
-# is one line (name, dir, label) plus its directory. The steps live once in the shared composite actions (.github/actions/build-image, sign-image, promote-image).
+# is one line (name, dir, label, cache) plus its directory. The steps live once in the shared composite actions (.github/actions/build-image, sign-image, promote-image).
 # The variants are independent: each skips on its own unchanged content and one failing build never stops another variant from being signed. The job names are the
 # required checks of the rulesets (`Build the binaries image`, `Build the dx binaries image`, ...), built from `label`; do not rename them.
 #
@@ -12,8 +12,8 @@ name: Binaries images
 # small artifact `published-<dir>` (the values below); `sign` downloads ITS variant's artifact, signs that digest and only THEN moves `testing` to it, so nobody ever sees
 # an unsigned `testing`. A missing artifact means that variant's build failed, so its `sign` job fails (red) instead of passing for a build that did not happen. A push whose
 # build inputs (ci.inputs(dir)) equal those of the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries_skip.py): both jobs
-# still run and succeed, their steps are skipped (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The build reads and
-# (on testing) writes a layer cache in the separate package <image>-cache; the cache only saves time, the layout check and the signature decide what is published.
+# still run and succeed, their steps are skipped (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The base build reads and
+# (on testing) writes a layer cache in the separate package octarine-bins-cache (dx and gx build without one); the cache only saves time, the layout check and the signature decide what is published.
 # `sign` waits for every build (the slowest is the base with Ghostty), so dx and gx move `testing` later than the base builds.
 #
 # On main (the promotion of testing into main, or a dispatch): `promote` retags each tested, signed `testing` image to `latest` (binaries_promote.py; no rebuild). It fails
@@ -46,12 +46,12 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      # THE list of variants (the other two jobs reuse it): image name, directory, and the label in the job names ("" for the base)
+      # THE list of variants (the other two jobs reuse it): image name, directory, the label in the job names ("" for the base) and whether the build uses the layer cache (the base only)
       matrix: &variants
         include:
-          - {name: octarine-bins, dir: src, label: ""}
-          - {name: octarine-bins-dx, dir: dx, label: "dx "}
-          - {name: octarine-bins-gx, dir: gx, label: "gx "}
+          - {name: octarine-bins, dir: src, label: "", cache: true}
+          - {name: octarine-bins-dx, dir: dx, label: "dx ", cache: false}
+          - {name: octarine-bins-gx, dir: gx, label: "gx ", cache: false}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -64,6 +64,7 @@ jobs:
         with:
           name: ${{ matrix.name }}
           dir: ${{ matrix.dir }}
+          cache: ${{ matrix.cache }}
 
       # matrix job outputs are last-write-wins, so the hand-over to `sign` is one tiny artifact per variant (only reached when the build succeeded)
       - name: Leave the result for sign
