@@ -1,36 +1,46 @@
-"""The GitHub API layer of ci.py (githubkit against the fake API): a 404 is definitive, a transport error is retried, models validate untrusted JSON."""
+"""The GitHub API as the scripts use it: the githubkit SDK directly (ci.github()) against the fake API. What the SDK does is what is tested: a 404 raises RequestFailed after ONE
+request, a transport error is retried by the retry decision of ci.py, and a connection that stays broken raises the SDK's own RequestError."""
+import pytest
+from githubkit.exception import RequestError, RequestFailed
+
 import ci
+from conftest import fixture
 
 
-def test_a_404_is_definitive_and_not_retried(github):
-    assert ci.gh_api("/repos/o/r/releases/latest") is None
-    assert github.requests == [("GET", "/repos/o/r/releases/latest")]
+def test_a_404_raises_the_sdk_error_after_one_request(github):
+    gh = ci.github()
+    with pytest.raises(RequestFailed) as e:
+        gh.rest.repos.get_latest_release("o", "r")
+    assert e.value.response.status_code == 404 and github.requests == [("GET", "/repos/o/r/releases/latest")]
 
 
-def test_a_transport_error_is_retried(github):
-    github.routes["/repos/o/r/x"] = {"ok": True}
+def test_a_dropped_connection_is_retried(github):
+    github.routes["/repos/o/r/releases/latest"] = fixture("release", tag_name="v1.2.3")
     github.drop = 2  # the first two connections are closed without an answer
-    assert ci.gh_api("/repos/o/r/x") == {"ok": True}
+    gh = ci.github()
+    assert gh.rest.repos.get_latest_release("o", "r").parsed_data.tag_name == "v1.2.3"
     assert len(github.requests) == 3
 
 
-def test_a_transport_error_that_persists_gives_none_after_three_tries(github):
-    github.routes["/repos/o/r/x"] = {"ok": True}
+def test_a_connection_that_stays_broken_raises_the_sdks_error_after_three_tries(github):
     github.drop = 99
-    assert ci.gh_api("/repos/o/r/x") is None
-    assert len(github.requests) == 3
+    gh = ci.github()
+    with pytest.raises(RequestError) as e:
+        gh.rest.repos.get_latest_release("o", "r")
+    assert not isinstance(e.value, RequestFailed) and len(github.requests) == 3
 
 
-def test_the_token_goes_in_the_authorization_header_and_a_model_validates_the_answer(github):
-    github.routes["/repos/o/r/releases/latest"] = {"tag_name": "v1.2.3", "other": 1}
-    assert ci.gh_api("/repos/o/r/releases/latest", ci.Release).tag_name == "v1.2.3"
-    github.routes["/repos/o/r/releases/latest"] = {"name": "no tag"}
-    assert ci.gh_api("/repos/o/r/releases/latest", ci.Release) is None  # invalid JSON from the server is not trusted
+def test_the_token_server_and_typed_models(github):
+    github.routes["/repos/o/r/releases/latest"] = fixture("release", tag_name="v9")
+    gh = ci.github()
+    release = gh.rest.repos.get_latest_release("o", "r").parsed_data
+    assert (release.tag_name, type(release).__name__) == ("v9", "Release")
 
 
-def test_pages_are_joined(github):
-    github.routes["/repos/o/r/tags"] = [{"name": str(i)} for i in range(5)]
-    assert len(ci.gh_pages("/repos/o/r/tags")) == 5
+def test_paginate_is_a_lazy_iterator(github):
+    github.routes["/repos/o/r/tags"] = [{**fixture("tag"), "name": "v1"}, {**fixture("tag"), "name": "v2"}]
+    gh = ci.github()
+    assert next(t.name for t in gh.rest.paginate(gh.rest.repos.list_tags, owner="o", repo="r") if t.name == "v2") == "v2"
 
 
 def test_versions_order_numerically_not_alphabetically():

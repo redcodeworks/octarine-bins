@@ -38,19 +38,20 @@ def say(line):
     ci.append_to("GITHUB_STEP_SUMMARY", f"- {line}")
 
 
-def days_since(iso):
-    """Whole days since an ISO date, or None when it cannot be read."""
-    try:
-        when = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", iso.replace("Z", "+00:00")))
-    except ValueError:
-        return None
+def days_since(when):
+    """Whole days since a datetime or an ISO date string; None when a string cannot be read."""
+    if isinstance(when, str):
+        try:
+            when = datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", when.replace("Z", "+00:00")))
+        except ValueError:
+            return None
     return int((datetime.now(timezone.utc) - when).total_seconds() // 86400) if when.tzinfo else None
 
 
 def commit_age(repo, sha):
-    info = ci.gh_api(f"/repos/{repo}/commits/{sha}") or {}
-    days = days_since(((info.get("commit") or {}).get("committer") or {}).get("date", ""))
-    return "unknown" if days is None else days
+    owner, name = repo.split("/")
+    gh = ci.github()
+    return days_since(gh.rest.repos.get_commit(owner, name, sha).parsed_data.commit.committer.date)
 
 
 def git(*args):
@@ -80,20 +81,19 @@ def bump_source(pin, root):
     current = cur.tag or cur.commit[:7]
     decision = upstream_check.check(root, f"src/{pin}")
     ci.log.info(f"{pin}: {decision.line()}")
-    verb = decision.verb
-    if verb == "bump":
-        tag, commit = decision.tag, decision.commit
-        old = cur.tag or cur.commit
-        try:
-            pins.set_upstream(Path(root) / path, tag, commit)
-        except ValueError as e:
-            raise Fail(f"cannot write {path} ({e})")
-        return commit_pin(pin, [path], f"Bump {pin} to {tag}", current, tag, f"https://github.com/{cur.watch}/compare/{old}...{tag}", commit_age(cur.watch, commit))
-    if verb == "forkbehind":
-        return f"the fork is behind upstream ({decision.tag}): run gh repo sync on it first"
-    if verb == "unreachable":
-        raise Fail(decision.text)
-    return f"nothing to bump: {decision.line()}"
+    match decision.verb:
+        case "bump":
+            tag, commit = decision.tag, decision.commit
+            old = cur.tag or cur.commit
+            try:
+                pins.set_upstream(Path(root) / path, tag, commit)
+            except ValueError as e:
+                raise Fail(f"cannot write {path} ({e})")
+            return commit_pin(pin, [path], f"Bump {pin} to {tag}", current, tag, f"https://github.com/{cur.watch}/compare/{old}...{tag}", commit_age(cur.watch, commit))
+        case "forkbehind":
+            return f"the fork is behind upstream ({decision.tag}): run gh repo sync on it first"
+        case _:
+            return f"nothing to bump: {decision.line()}"
 
 
 def bump_ghostty(root):
@@ -105,20 +105,19 @@ def bump_ghostty(root):
     current = f"{cur.tag}, zig {pins.read_env(Path(root) / files[1]).get('ZIG_VERSION', '')}"
     decision = ghostty_check.check(root)
     ci.log.info(f"ghostty: {decision.line()}")
-    verb = decision.verb
-    if verb == "bump":  # a new Ghostty tag brings the Zig minor it needs: one commit for both, they cannot be applied apart
-        tag, commit, zig = decision.tag, decision.commit, decision.zig
-        try:
-            pins.write_ghostty(Path(root) / "src/ghostty", tag, commit, zig, decision.zig_url, decision.zig_sha256, decision.zig_size)
-        except ValueError as e:
-            raise Fail(f"writing the Ghostty and Zig pins failed ({e})")
-        return commit_pin("ghostty", files, f"Bump ghostty to {tag} (Zig {zig})", current, f"{tag}, zig {zig}",
-                          f"https://github.com/{cur.watch}/compare/{cur.tag}...{tag}", commit_age(cur.watch, commit))
-    if verb == "wait":
-        return f"nothing to bump yet: {decision.tag} {decision.text}"
-    if verb == "unreachable":
-        raise Fail(decision.text)
-    return f"nothing to bump: {decision.line()}"
+    match decision.verb:
+        case "bump":  # a new Ghostty tag brings the Zig minor it needs: one commit for both, they cannot be applied apart
+            tag, commit, zig = decision.tag, decision.commit, decision.zig
+            try:
+                pins.write_ghostty(Path(root) / "src/ghostty", tag, commit, zig, decision.zig_url, decision.zig_sha256, decision.zig_size)
+            except ValueError as e:
+                raise Fail(f"writing the Ghostty and Zig pins failed ({e})")
+            return commit_pin("ghostty", files, f"Bump ghostty to {tag} (Zig {zig})", current, f"{tag}, zig {zig}",
+                              f"https://github.com/{cur.watch}/compare/{cur.tag}...{tag}", commit_age(cur.watch, commit))
+        case "wait":
+            return f"nothing to bump yet: {decision.tag} {decision.text}"
+        case _:
+            return f"nothing to bump: {decision.line()}"
 
 
 def bump_builder(root):
@@ -178,15 +177,17 @@ def bump(pin, root="."):
     """Check one pin; returns the status line, raises Fail. The working tree is restored on failure."""
     if git("diff", "--quiet").returncode != 0:
         raise Fail("the working tree is not clean")
-    if pin in ("scx", "extest"):
-        return bump_source(pin, root)
-    if pin == "ghostty":
-        return bump_ghostty(root)
-    if pin == "builder":
-        return bump_builder(root)
-    if pin == "python-deps":
-        return bump_python_deps(root)
-    raise Fail(f"unknown pin '{pin}'")
+    match pin:
+        case "scx" | "extest":
+            return bump_source(pin, root)
+        case "ghostty":
+            return bump_ghostty(root)
+        case "builder":
+            return bump_builder(root)
+        case "python-deps":
+            return bump_python_deps(root)
+        case _:
+            raise Fail(f"unknown pin '{pin}'")
 
 
 def main(argv=None):
@@ -200,6 +201,9 @@ def main(argv=None):
         git("checkout", "-q", "--", ".")
         say(f"`{pin}`: FAILED, {e}")
         return 1
+    except BaseException:  # any other error (an API error, a bad pin file) crashes with its own traceback, after the working tree is restored
+        git("checkout", "-q", "--", ".")
+        raise
     say(f"`{pin}`: {status}")
     return 0
 

@@ -13,6 +13,7 @@ import shlex
 import subprocess
 import sys
 import tarfile
+from itertools import chain
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -24,49 +25,41 @@ def table_names(path):
     return [line.split("\t")[0] for line in Path(path).read_text().splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
 
+def required_files(component, schedulers):
+    """The files one component must have in the image (the part of the layout that is specific to it)."""
+    match component:
+        case "scx":
+            if not schedulers:
+                raise ValueError("no scheduler in the manifest")
+            yield from (f"scx/bin/{name}" for name in schedulers)
+            yield "scx/schedulers.tsv"
+        case "extest":
+            yield from ("extest/lib/libextest.so", "extest/lib64/libextest.so")
+        case "ghostty":
+            yield from ("ghostty/root/usr/bin/ghostty", "ghostty/root/usr/share/applications/com.mitchellh.ghostty.desktop", "ghostty/FILES")
+        case _:
+            raise ValueError(f"unknown component '{component}'")
+    yield from (f"{component}/SOURCE", f"{component}/BUILDINFO")
+
+
 def check(listing, schedulers, components, allow_empty=False, packages=()):
     """Problems of an assembled image: `listing` is the names in it, `schedulers` the scheduler names of the manifest. Returns a list of messages."""
     if not components and not allow_empty:
         raise ValueError("name at least one component")
-    files = {name[2:] if name.startswith("./") else name for name in listing}
-    problems = []
+    files = {name.removeprefix("./") for name in listing}
 
-    def need(name):
-        if name not in files:
-            problems.append(f"the binaries image lacks {name}")
+    def has_files_under(prefix):
+        return any(f.startswith(prefix) and len(f) > len(prefix) for f in files)
 
-    for c in components:
-        if c == "scx":
-            if not schedulers:
-                raise ValueError("no scheduler in the manifest")
-            for name in schedulers:
-                need(f"scx/bin/{name}")
-            need("scx/schedulers.tsv")
-        elif c == "extest":
-            need("extest/lib/libextest.so")
-            need("extest/lib64/libextest.so")
-        elif c == "ghostty":
-            need("ghostty/root/usr/bin/ghostty")
-            need("ghostty/root/usr/share/applications/com.mitchellh.ghostty.desktop")
-            need("ghostty/FILES")
-        else:
-            raise ValueError(f"unknown component '{c}'")
-        need(f"{c}/SOURCE")
-        need(f"{c}/BUILDINFO")
-        if not any(f.startswith(f"{c}/LICENSES/") and len(f) > len(f"{c}/LICENSES/") for f in files):
-            problems.append(f"the binaries image has no {c}/LICENSES")
-    need("BUILDINFO")
-    need("COMPONENTS")
-    if components:
-        need("SOURCE")
-        if not any(f.startswith("LICENSES/") and len(f) > len("LICENSES/") for f in files):
-            problems.append("the binaries image has no top-level LICENSES")
-    allowed = {"SOURCE", "BUILDINFO", "COMPONENTS", "LICENSES", *components} | ({"packages"} if packages else set())
-    extra = sorted({f.split("/")[0] for f in files} - allowed - {""})
-    if extra:
+    needed = [*chain.from_iterable(required_files(c, schedulers) for c in components), "BUILDINFO", "COMPONENTS", *(["SOURCE"] if components else []),
+              *(f"packages/{name}" for name in packages)]
+    problems = [f"the binaries image lacks {name}" for name in needed if name not in files]
+    problems += [f"the binaries image has no {c}/LICENSES" for c in components if not has_files_under(f"{c}/LICENSES/")]
+    if components and not has_files_under("LICENSES/"):
+        problems.append("the binaries image has no top-level LICENSES")
+    allowed = {"SOURCE", "BUILDINFO", "COMPONENTS", "LICENSES", *components, *(["packages"] if packages else [])}
+    if extra := sorted({f.split("/")[0] for f in files} - allowed - {""}):
         problems.append(f"the binaries image holds unexpected top-level entries: {' '.join(extra)}")
-    for name in packages:
-        need(f"packages/{name}")
     return problems
 
 

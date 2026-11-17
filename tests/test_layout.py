@@ -52,20 +52,27 @@ def test_assembled_image_passes_and_components_are_one_per_line(img):
     assert (img / "COMPONENTS").read_text().split() == COMPONENTS
 
 
-def test_a_scheduler_of_the_manifest_missing_is_named(img):
+def remove_scheduler(img):
     (img / "scx/bin" / SCHEDULERS[0]).unlink()
-    assert problems(img) == [f"the binaries image lacks scx/bin/{SCHEDULERS[0]}"]
 
 
-def test_missing_components_file_fails(img):
+def remove_components_file(img):
     (img / "COMPONENTS").unlink()
-    assert problems(img) == ["the binaries image lacks COMPONENTS"]
 
 
-def test_unexpected_top_level_entry_fails(img):
+def add_stray_directory(img):
     (img / "stray").mkdir()
     (img / "stray/file").write_text("x")
-    assert "unexpected top-level entries: stray" in problems(img)[0]
+
+
+@pytest.mark.parametrize("mutate,expected", [
+    (remove_scheduler, f"the binaries image lacks scx/bin/{SCHEDULERS[0]}"),  # named after the real manifest
+    (remove_components_file, "the binaries image lacks COMPONENTS"),
+    (add_stray_directory, "the binaries image holds unexpected top-level entries: stray"),
+])
+def test_a_damaged_image_fails_and_names_the_problem(img, mutate, expected):
+    mutate(img)
+    assert problems(img) == [expected]
 
 
 def test_empty_dx_gx_image_passes_only_with_allow_empty(tmp_path):

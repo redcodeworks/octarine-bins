@@ -40,13 +40,22 @@ def git(repo, *args):
                           env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}).stdout.strip()
 
 
+def load_fake(name):
+    """Import a Python file of tests/fakes by path (the directory is not on sys.path: the stub bump_run.py there must not shadow the real one)."""
+    spec = importlib.util.spec_from_file_location(name, FAKES / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+github_api = load_fake("github_api")
+fixture, pull = github_api.fixture, github_api.pull  # captured GitHub answers for the tests to adjust
+
+
 @pytest.fixture
 def github(monkeypatch):
     """A fake GitHub API: the scripts (this process and subprocesses) talk to it through GITHUB_API_URL, GITHUB_REPOSITORY is o/r."""
-    spec = importlib.util.spec_from_file_location("github_api", FAKES / "github_api.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    api = module.FakeGitHub()
+    api = github_api.FakeGitHub()
     monkeypatch.setenv("GITHUB_API_URL", api.url)
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")

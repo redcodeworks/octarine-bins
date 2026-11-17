@@ -10,6 +10,7 @@ Afterwards the tag is read back until it shows the digest, and the signature is 
 """
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,13 +25,10 @@ class Fail(Exception):
 
 def tree_ids(commit, trees):
     """The git tree id of each input at a commit, or None when one is missing."""
-    ids = []
-    for t in trees:
-        p = ci.run(["git", "rev-parse", "--verify", "-q", f"{commit}:{t}"], capture=True)
-        if p.returncode != 0:
-            return None
-        ids.append(p.stdout.decode().strip())
-    return ids
+    try:
+        return [ci.git("rev-parse", "--verify", "-q", f"{commit}:{t}") for t in trees]
+    except subprocess.CalledProcessError:
+        return None
 
 
 def promote(image, directory):

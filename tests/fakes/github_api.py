@@ -2,14 +2,30 @@
 import json
 import re
 import threading
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+
+
+API = Path(__file__).parent / "api"  # real GitHub answers (captured once), because githubkit validates every field of a typed response
+
+
+def fixture(name, **fields):
+    """A captured GitHub answer from tests/fakes/api/<name>.json with some top-level fields replaced."""
+    return {**json.loads((API / f"{name}.json").read_text()), **fields}
+
+
+def pull(number, ref):
+    """A pull request answer with the given number and head branch."""
+    data = fixture("pull", number=number, html_url=f"https://example.test/pull/{number}")
+    data["head"] = {**data["head"], "ref": ref}
+    return data
 
 
 class FakeGitHub:
     def __init__(self):
         self.routes = {}      # path -> JSON answer of a GET
-        self.prs = []         # open pull requests: {"number", "head": {"ref"}}
+        self.prs = []         # open pull requests (full answers, see pull())
         self.created = []     # (head, title) of every pull request opened
         self.closed = []      # numbers of the pull requests closed
         self.requests = []    # (method, path) of every request seen
@@ -31,14 +47,15 @@ class FakeGitHub:
         if method == "POST" and path.endswith("/pulls"):
             number = len(self.prs) + len(self.created) + 100
             self.created.append((body["head"], body["title"]))
-            self.prs.append({"number": number, "head": {"ref": body["head"]}})
-            return 201, {"number": number, "html_url": f"https://example.test/pull/{number}"}
+            self.prs.append(pull(number, body["head"]))
+            return 201, self.prs[-1]
         if method == "POST" and path.endswith("/comments"):
-            return 201, {}
+            return 201, fixture("comment")
         if method == "PATCH" and (m := re.search(r"/pulls/(\d+)$", path)):
             self.closed.append(int(m.group(1)))
-            self.prs = [p for p in self.prs if p["number"] != int(m.group(1))]
-            return 200, {}
+            closed = next(p for p in self.prs if p["number"] == int(m.group(1)))
+            self.prs = [p for p in self.prs if p is not closed]
+            return 200, closed
         if method == "DELETE":
             return 204, None
         return 404, {"message": "Not Found"}
@@ -60,6 +77,8 @@ class FakeGitHub:
                     self.connection.close()
                     return
                 status, payload = fake.answer(self.command, path, body)
+                if isinstance(payload, list) and parse_qs(urlsplit(self.path).query).get("page", ["1"])[0] != "1":
+                    payload = []  # every list fits on page 1
                 data = json.dumps(payload).encode() if payload is not None else b""
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")

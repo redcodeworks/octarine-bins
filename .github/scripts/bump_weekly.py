@@ -17,7 +17,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from githubkit.exception import RequestError
+from githubkit.exception import RequestFailed
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -60,31 +60,35 @@ def to_of(rev):
     return fields[2] if len(fields) > 2 else ""
 
 
+def repo_parts():
+    owner, name = os.environ["GITHUB_REPOSITORY"].split("/")
+    return {"owner": owner, "repo": name}
+
+
 def open_prs(pin, base):
     """(number, branch) of every open PR into the base whose branch is bump/<pin>-..."""
-    repo = os.environ["GITHUB_REPOSITORY"]
-    prs = ci.gh_pages(f"/repos/{repo}/pulls", base=base, state="open") or []
-    return [(pr["number"], pr["head"]["ref"]) for pr in prs if pr["head"]["ref"].startswith(f"bump/{pin}-")]
+    gh = ci.github()
+    prs = gh.rest.paginate(gh.rest.pulls.list, state="open", base=base, **repo_parts())
+    return [(pr.number, pr.head.ref) for pr in prs if pr.head.ref.startswith(f"bump/{pin}-")]
 
 
 def close_pr(number, branch, comment):
     """Comment on a pull request, close it and delete its branch."""
-    repo = os.environ["GITHUB_REPOSITORY"]
-    try:
-        ci.gh_request("POST", f"/repos/{repo}/issues/{number}/comments", json={"body": comment})
-        ci.gh_request("PATCH", f"/repos/{repo}/pulls/{number}", json={"state": "closed"})
-        ci.gh_request("DELETE", f"/repos/{repo}/git/refs/heads/{branch}")
-    except (RequestError, ci.GhTransportError) as e:
-        ci.log.warning(f"could not close #{number}: {ci.text(str(e), 150)}")
+    gh = ci.github()
+    rest = gh.rest
+    rest.issues.create_comment(issue_number=number, data={"body": comment}, **repo_parts())
+    rest.pulls.update(pull_number=number, data={"state": "closed"}, **repo_parts())
+    rest.git.delete_ref(ref=f"heads/{branch}", **repo_parts())
 
 
 def open_pr(branch, title, body, base):
-    """Open the pull request; returns its URL or None."""
-    repo = os.environ["GITHUB_REPOSITORY"]
+    """Open the pull request and return its URL."""
+    gh = ci.github()
     try:
-        return ci.gh_request("POST", f"/repos/{repo}/pulls", json={"title": title, "head": branch, "base": base, "body": body}).json()["html_url"]
-    except (RequestError, ci.GhTransportError):
-        return None
+        return gh.rest.pulls.create(data={"title": title, "head": branch, "base": base, "body": body}, **repo_parts()).parsed_data.html_url
+    except RequestFailed:
+        ci.log.error("Could not open the pull request. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?")
+        raise
 
 
 def main(argv=None):
@@ -153,10 +157,6 @@ def main(argv=None):
             failed = True
             continue
         url = open_pr(branch, title, body, base)
-        if not url:
-            ci.log.error(f"Could not open the pull request for {p}. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?")
-            failed = True
-            continue
         summary(f"`{p}`: opened {url}")
         for number, pr_branch in pending:
             close_pr(number, pr_branch, f"Superseded by {url}: upstream moved again, so `{p}` has a newer bump pull request.")

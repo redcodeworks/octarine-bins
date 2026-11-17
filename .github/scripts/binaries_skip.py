@@ -10,6 +10,7 @@ asked) fails the script (exit 1): a build must not be skipped or forced on a gue
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,7 +26,11 @@ def inputs_hash(commit, paths):
 
 
 def has_commit(rev):
-    return ci.run(["git", "cat-file", "-e", f"{rev}^{{commit}}"], capture=True).returncode == 0
+    try:
+        ci.git("cat-file", "-e", f"{rev}^{{commit}}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
 
 
 def decide(image, directory):

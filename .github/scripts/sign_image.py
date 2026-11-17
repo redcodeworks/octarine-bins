@@ -24,11 +24,12 @@ def main(argv=None):
         ci.log.error("No pushed digest to sign")
         return 1
     try:
-        registry.sign(f"{image}@{digest}")
-        registry.cosign_check(["--key", "cosign.pub", f"{image}@{digest}"])
-        registry.copy(f"{image}@{digest}", f"{image}:testing")
-        registry.settled(image, "testing", digest)
-        registry.cosign_check(["--key", "cosign.pub", f"{image}:testing"])
+        with ci.group("sign, verify, then move testing"):
+            registry.sign(f"{image}@{digest}")
+            registry.cosign_check(["--key", "cosign.pub", f"{image}@{digest}"])
+            registry.copy(f"{image}@{digest}", f"{image}:testing")
+            registry.settled(image, "testing", digest)
+            registry.cosign_check(["--key", "cosign.pub", f"{image}:testing"])
     except (ci.NetworkError, registry.ReadError, registry.NotVerified) as e:
         ci.log.error(str(e))
         return 1

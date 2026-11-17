@@ -1,17 +1,17 @@
 """The pin files, writer into reader (the real ghostty pins are copied, written by the real writer and read back by the real reader), and the weekly decisions against a fake
 GitHub API (githubkit talks to it over HTTP) and a Zig index file."""
 import base64
-import io
 import json
 import shutil
 
 import httpx
 import pytest
+from githubkit.exception import RequestFailed
 
 import ghostty_check
 import pins
 import upstream_check
-from conftest import ROOT
+from conftest import ROOT, fixture
 
 SHA = "a" * 40
 SHA2 = "b" * 40
@@ -54,24 +54,32 @@ def test_the_writer_refuses_an_unofficial_zig_entry_and_touches_nothing(root):
 
 def test_a_tag_pinned_component_bumps_to_a_newer_release(root, github):
     tag = pins.load_upstream(root / "src/scx/upstream.env").tag
-    github.routes.update({"/repos/sched-ext/scx/releases/latest": {"tag_name": "v9.0.0"}, "/repos/sched-ext/scx/commits/v9.0.0": {"sha": SHA}})
+    github.routes.update({"/repos/sched-ext/scx/releases/latest": fixture("release", tag_name="v9.0.0"), "/repos/sched-ext/scx/commits/v9.0.0": fixture("commit", sha=SHA)})
     d = upstream_check.check(root, "src/scx")
     assert (d.verb, d.tag, d.commit) == ("bump", "v9.0.0", SHA)
-    github.routes["/repos/sched-ext/scx/releases/latest"] = {"tag_name": tag}
+    github.routes["/repos/sched-ext/scx/releases/latest"] = fixture("release", tag_name=tag)
     assert upstream_check.check(root, "src/scx").verb == "current"
-    github.routes.clear()
-    assert upstream_check.check(root, "src/scx").verb == "unreachable"
+
+
+def test_an_api_error_ends_the_check_with_the_sdks_error(root, github):
+    with pytest.raises(ValueError, match="no release"):  # 404 on the release of a tag-pinned project
+        upstream_check.check(root, "src/scx")
+    github.routes["/repos/sched-ext/scx/releases/latest"] = fixture("release", tag_name="v9.0.0")
+    with pytest.raises(RequestFailed):  # the commit of the tag cannot be read: nothing is guessed
+        upstream_check.check(root, "src/scx")
 
 
 def test_a_fork_pin_waits_for_the_fork_to_contain_the_new_commit(root, github):
     pinned = pins.load_upstream(root / "src/extest/upstream.env").commit
-    github.routes.update({"/repos/Supreeeme/extest/releases/latest": {"tag_name": "v2"}, "/repos/Supreeeme/extest/commits/v2": {"sha": SHA},
-                          f"/repos/Supreeeme/extest/compare/{pinned}...{SHA}": {"status": "ahead"}, "/repos/redcodeworks/extest": {"default_branch": "main"},
-                          f"/repos/redcodeworks/extest/compare/{SHA}...main": {"status": "behind"}})
+    github.routes.update({"/repos/Supreeeme/extest/releases/latest": fixture("release", tag_name="v2"), "/repos/Supreeeme/extest/commits/v2": fixture("commit", sha=SHA),
+                          f"/repos/Supreeeme/extest/compare/{pinned}...{SHA}": fixture("compare", status="ahead"), "/repos/redcodeworks/extest": fixture("repo", default_branch="main"),
+                          f"/repos/redcodeworks/extest/compare/{SHA}...main": fixture("compare", status="behind")})
     assert upstream_check.check(root, "src/extest").verb == "forkbehind"
-    github.routes[f"/repos/redcodeworks/extest/compare/{SHA}...main"] = {"status": "ahead"}
+    github.routes[f"/repos/redcodeworks/extest/compare/{SHA}...main"] = fixture("compare", status="ahead")
     d = upstream_check.check(root, "src/extest")
     assert (d.verb, d.tag, d.commit) == ("bump", "v2", SHA)
+    del github.routes[f"/repos/redcodeworks/extest/compare/{SHA}...main"]  # 404: the fork does not have the commit at all
+    assert upstream_check.check(root, "src/extest").verb == "forkbehind"
 
 
 def ghostty_world(monkeypatch, github, tmp_path, root, tags, zon, index):
@@ -79,8 +87,9 @@ def ghostty_world(monkeypatch, github, tmp_path, root, tags, zon, index):
     f = tmp_path / "index.json"
     f.write_text(json.dumps(index))
     monkeypatch.setenv("ZIG_INDEX_FILE", str(f))
-    github.routes.update({"/repos/ghostty-org/ghostty/tags": [{"name": n} for n in tags(tag)], "/repos/ghostty-org/ghostty/commits/v9.0.0": {"sha": SHA2},
-                          "/repos/ghostty-org/ghostty/contents/build.zig.zon": {"content": base64.b64encode(zon.encode()).decode()}})
+    github.routes.update({"/repos/ghostty-org/ghostty/tags": [{**fixture("tag"), "name": n} for n in tags(tag)],
+                          "/repos/ghostty-org/ghostty/commits/v9.0.0": fixture("commit", sha=SHA2),
+                          "/repos/ghostty-org/ghostty/contents/build.zig.zon": fixture("content", content=base64.b64encode(zon.encode()).decode())})
 
 
 ZON = '.{ .minimum_zig_version = "0.17.0", }'
@@ -131,18 +140,22 @@ def test_the_zig_index_download_retries_transport_errors_and_5xx(monkeypatch):
     assert calls[0]["timeout"] == 30 and calls[0]["follow_redirects"] is True
 
 
-@pytest.mark.parametrize("answer", [response(404), response(200, b"not json"), response(200, b'{"0.17.1": "not a release"}')])
-def test_a_definitive_or_invalid_zig_index_is_not_retried(monkeypatch, answer):
+@pytest.mark.parametrize("answer,error", [(response(404), httpx.HTTPStatusError), (response(200, b"not json"), ValueError), (response(200, b'{"0.17.1": "not a release"}'), ValueError)])
+def test_a_definitive_or_invalid_zig_index_raises_and_is_not_retried(monkeypatch, answer, error):
     monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
     calls = fake_get(monkeypatch, answer)
-    assert ghostty_check.load_index() is None and len(calls) == 1
+    with pytest.raises(error):
+        ghostty_check.load_index()
+    assert len(calls) == 1
 
 
-def test_a_zig_index_that_stays_down_is_none_after_three_tries(monkeypatch):
+def test_a_zig_index_that_stays_down_raises_after_three_tries(monkeypatch):
     monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
     monkeypatch.setenv("RETRY_DELAY", "0")
     calls = fake_get(monkeypatch, *[httpx.ConnectError("refused")] * 3)
-    assert ghostty_check.load_index() is None and len(calls) == 3
+    with pytest.raises(httpx.ConnectError, match="failed 3 attempts"):
+        ghostty_check.load_index()
+    assert len(calls) == 3
 
 
 def test_lock_changes_lists_the_packages_that_moved():

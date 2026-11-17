@@ -9,6 +9,7 @@ Format: KEY=VALUE lines, `#` comments and blank lines allowed, nothing else (the
 """
 import re
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, ValidationError
 from pydantic.dataclasses import dataclass
@@ -28,9 +29,9 @@ class Pin:
 
 @dataclass(frozen=True)
 class Decision:
-    """The answer of a weekly check (upstream_check, ghostty_check): current, bump, wait, report, forkbehind or unreachable. A bump carries the new tag and commit, and for
+    """The answer of a weekly check (upstream_check, ghostty_check): current, bump, wait, report or forkbehind. A bump carries the new tag and commit, and for
     Ghostty the Zig release that goes with it."""
-    verb: str
+    verb: Literal["current", "bump", "wait", "report", "forkbehind"]
     text: str = ""
     tag: str = ""
     commit: str = Field("", pattern=r"^([0-9a-f]{40})?$")
@@ -94,12 +95,7 @@ def set_upstream(path, tag, commit):
 
 def read_env(path):
     """A plain KEY=VALUE file (zig.env, builder.env) as a dict; comment lines skipped."""
-    out = {}
-    for line in Path(path).read_text().splitlines():
-        m = re.fullmatch(r"([A-Z_0-9]+)=(.*)", line)
-        if m:
-            out[m.group(1)] = m.group(2)
-    return out
+    return dict(m.groups() for line in Path(path).read_text().splitlines() if (m := re.fullmatch(r"([A-Z_0-9]+)=(.*)", line)))
 
 
 def write_ghostty(directory, tag, commit, zig_version, zig_url, zig_sha256, zig_size):
