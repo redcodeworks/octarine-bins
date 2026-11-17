@@ -164,3 +164,12 @@ def test_lock_changes_lists_the_packages_that_moved():
     new = '[[package]]\nname = "httpx"\nversion = "0.28.2"\n\n[[package]]\nname = "yaml"\nversion = "6"\n\n[[package]]\nname = "new"\nversion = "1"\n'
     assert bump_run.lock_changes(old, new) == ["httpx 0.28.1 to 0.28.2", "new - to 1"]
     assert bump_run.lock_changes(old, old) == []
+
+
+def test_newest_python_is_the_highest_default_cpython_of_the_same_minor():
+    import bump_run
+    listing = [{"implementation": i, "variant": v, "version": ver} for i, v, ver in [
+        ("cpython", "default", "3.14.9"), ("cpython", "default", "3.14.10"), ("cpython", "freethreaded", "3.14.11"),
+        ("pypy", "default", "3.14.12"), ("cpython", "default", "3.15.0")]]
+    assert bump_run.newest_python(listing, "3.14.4") == "3.14.10"
+    assert bump_run.newest_python(listing, "3.13.1") is None

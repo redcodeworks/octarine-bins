@@ -95,7 +95,7 @@ def main(argv=None):
     ci.arg_parser(__doc__).parse_args(argv)
     os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
     base = os.environ.get("BUMP_BASE", "testing")
-    pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder python-deps").split()
+    pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder python-deps python").split()
     dry = bool(os.environ.get("DRY_RUN"))
     if git("fetch", "-q", "origin", base).returncode != 0:
         ci.log.error(f"cannot fetch {base}")
