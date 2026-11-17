@@ -1,4 +1,4 @@
-# The dx binaries image, ghcr.io/redcodeworks/octarine-bins-dx (.github/workflows/binaries-dx.yml): binaries only the dx image of octarine-os needs.
+# The dx binaries image, ghcr.io/redcodeworks/octarine-bins-dx (.github/workflows/binaries.yml): binaries only the dx image of octarine-os needs.
 # No binary component yet: the assemble stage writes an EMPTY /COMPONENTS (zero components = no binary to install) and an empty BUILDINFO. The image also carries the dev package list(s) and their installers under /packages: required-fedora.txt, optional-fedora.txt (the developer package lists), install.sh.
 # Build: `just build octarine-bins-dx:dev dev unknown dx` (context: this directory; --build-context lib=src/lib is the shared helpers, installer=installer the shared package installers). To add a component, see dx/README.md.
 ARG BUILDER

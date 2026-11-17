@@ -7,8 +7,6 @@ rules:
     ignore:
       - action.yml
       - binaries.yml
-      - binaries-dx.yml
-      - binaries-gx.yml
       - bump-pins.yml
       - test.yml
   # bump-pins.yml pushes a branch with git (the bump pull request): the persisted checkout credential of the default GITHUB_TOKEN IS the mechanism (permissions
