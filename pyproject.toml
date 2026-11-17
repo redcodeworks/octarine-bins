@@ -1,0 +1,18 @@
+# Dependencies of the CI scripts and their tests (not a package). The versions are pinned with hashes in uv.lock; every workflow and recipe runs `uv run --frozen`, so nothing resolves at run time.
+# The weekly bump workflow proposes new locked versions as its own pull request (`uv lock --upgrade`, the `python-deps` kind).
+[project]
+name = "octarine-bins-ci"
+version = "0"
+description = "CI scripts of octarine-bins"
+requires-python = ">=3.14"
+dependencies = [
+    "githubkit",  # the GitHub API (it brings httpx and pydantic, which the scripts use directly as well)
+    "packaging",  # version ordering
+    "pyyaml",     # sanity.py parses the workflow files
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
