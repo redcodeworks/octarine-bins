@@ -27,10 +27,29 @@ permissions:
   contents: read
 
 jobs:
-  # a parse of the shell scripts, Python files and workflow files, the Justfile format and the tests (pytest through uv with the locked dependencies, plus the installer test: fake
-  # registry, cosign, GitHub API and dnf5, no network, a few seconds)
-  test:
-    name: test
+  # The tests are grouped by area, one directory per group under tests/ (the directory tree is the only list); `plan-tests` lists the groups and fails when a test file sits outside
+  # one, and one job `tests (<group>)` runs each. `sanity` is the quick parse and the Justfile format. `test` is the ONE required check (and the job name bump_checks.py reads from
+  # the dispatched run): it only reports whether the plan, `sanity` and every group job succeeded.
+  plan-tests:
+    name: plan-tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      groups: ${{ steps.plan.outputs.groups }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: List the test groups
+        id: plan
+        run: python3 -I .github/scripts/plan_tests.py
+
+  # a parse of the shell scripts, Python files and workflow files, and the Justfile format
+  sanity:
+    name: sanity
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
@@ -54,8 +73,50 @@ jobs:
       - name: Check Just format
         run: just check
 
-      - name: Run the tests
-        run: just test
+  # one job per group (pytest through uv with the locked dependencies, plus the bash tests of the group: fake registry, cosign, GitHub API and dnf5, no network)
+  tests:
+    name: tests (${{ matrix.group }})
+    needs: plan-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.plan-tests.outputs.groups) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
+
+      - name: Set up just
+        uses: ./.github/actions/setup-tool
+        with:
+          tool: just
+
+      - name: Run the tests of the group
+        env:
+          GROUP: ${{ matrix.group }}
+        run: just test "${GROUP}"
+
+  # The required check: succeeds only when every job above succeeded (a skipped or cancelled one fails it).
+  test:
+    name: test
+    needs: [plan-tests, sanity, tests]
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: ${RESULTS}"
+          for r in ${RESULTS}; do [ "$r" = success ] || exit 1; done
 
   secrets:
     name: secrets
