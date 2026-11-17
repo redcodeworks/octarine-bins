@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # The installer (installer/install.sh) read through the real package lists of the three images (src, dx, gx) with a stub dnf5 (no network, no root, no podman): each image's /packages tree
 # laid out as its Containerfile does and installed from there the way octarine-os will, and the two tiers
-# (strict required transactions; optional files that retry as a whole, then package by package, and report what is missing). The lint of the lists is tests/test_lint_packages.py. Run: tests/installer.sh
+# (strict required transactions; optional files that retry as a whole, then package by package, and report what is missing). The lint of the lists is test_lint_packages.py next to it. Run: tests/image/installer.sh
 set -uo pipefail
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+here=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 root=$(mktemp -d)
 trap 'rm -rf -- "$root"' EXIT
 pass=0; failn=0
