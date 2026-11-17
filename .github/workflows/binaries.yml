@@ -1,7 +1,7 @@
 name: Binaries images
-# Builds, signs and promotes the THREE images of octarine-bins: ghcr.io/redcodeworks/octarine-bins (src/, the base, every octarine-os variant), octarine-bins-dx (dx/) and
-# octarine-bins-gx (gx/). One run per push; `build`, `sign` and `promote` are each a matrix over the variants, and the matrix below is the ONLY list of them: a new variant
-# is one line (name, dir, label) plus its directory. The steps live once in the shared composite actions (.github/actions/build-image, sign-image, promote-image).
+# Builds, signs, attests and promotes the THREE images of octarine-bins: ghcr.io/redcodeworks/octarine-bins (src/, the base, every octarine-os variant), octarine-bins-dx (dx/) and
+# octarine-bins-gx (gx/). One run per push; `build`, `sign`, `attest` and `promote` are each a matrix over the variants, and the matrix below is the ONLY list of them: a new variant
+# is one line (name, dir, label, cache) plus its directory. The steps live once in the shared composite actions (.github/actions/build-image, sign-image, promote-image).
 # The variants are independent: each skips on its own unchanged content and one failing build never stops another variant from being signed. The job names are the
 # required checks of the rulesets (`Build the binaries image`, `Build the dx binaries image`, ...), built from `label`; do not rename them.
 #
@@ -12,8 +12,9 @@ name: Binaries images
 # small artifact `published-<dir>` (the values below); `sign` downloads ITS variant's artifact, signs that digest and only THEN moves `testing` to it, so nobody ever sees
 # an unsigned `testing`. A missing artifact means that variant's build failed, so its `sign` job fails (red) instead of passing for a build that did not happen. A push whose
 # build inputs (ci.inputs(dir)) equal those of the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries_skip.py): both jobs
-# still run and succeed, their steps are skipped (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The build reads and
-# (on testing) writes a layer cache in the separate package <image>-cache; the cache only saves time, the layout check and the signature decide what is published.
+# still run and succeed, their steps are skipped (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The base build reads and
+# (on testing) writes a layer cache in the separate package octarine-bins-cache (dx and gx build without one); the cache only saves time, the layout check and the signature decide what is published.
+# `attest` (testing only, after `sign`, no key) adds GitHub build provenance for each digest that was pushed: a second signal, not a gate (cosign.pub stays the gate).
 # `sign` waits for every build (the slowest is the base with Ghostty), so dx and gx move `testing` later than the base builds.
 #
 # On main (the promotion of testing into main, or a dispatch): `promote` retags each tested, signed `testing` image to `latest` (binaries_promote.py; no rebuild). It fails
@@ -46,12 +47,12 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      # THE list of variants (the other two jobs reuse it): image name, directory, and the label in the job names ("" for the base)
+      # THE list of variants (the other two jobs reuse it): image name, directory, the label in the job names ("" for the base) and whether the build uses the layer cache (the base only)
       matrix: &variants
         include:
-          - {name: octarine-bins, dir: src, label: ""}
-          - {name: octarine-bins-dx, dir: dx, label: "dx "}
-          - {name: octarine-bins-gx, dir: gx, label: "gx "}
+          - {name: octarine-bins, dir: src, label: "", cache: true}
+          - {name: octarine-bins-dx, dir: dx, label: "dx ", cache: false}
+          - {name: octarine-bins-gx, dir: gx, label: "gx ", cache: false}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -64,6 +65,7 @@ jobs:
         with:
           name: ${{ matrix.name }}
           dir: ${{ matrix.dir }}
+          cache: ${{ matrix.cache }}
 
       # matrix job outputs are last-write-wins, so the hand-over to `sign` is one tiny artifact per variant (only reached when the build succeeded)
       - name: Leave the result for sign
@@ -124,6 +126,57 @@ jobs:
           digest: ${{ steps.built.outputs.digest }}
           skipped: ${{ steps.built.outputs.skipped }}
           key: ${{ secrets.SIGNING_SECRET }}
+
+  # GitHub build provenance, the second signal next to the key signature (the key stays the gate): a GitHub-signed statement "this digest was built from this repository, this
+  # commit, by .github/workflows/binaries.yml on refs/heads/testing", which `gh attestation verify` checks (see CLAUDE.md). Its own job so the `sign` job, which holds the key,
+  # gets no id-token or attestations permission, and this job holds no key and no environment. Not a required check: a failure here never blocks a merge or a promotion.
+  # It attests only a digest this run pushed; a skipped build (same inputs as the current testing) attests nothing, the existing digest was attested when it was built.
+  attest:
+    name: Attest the ${{ matrix.label }}binaries image
+    needs: sign
+    # same rule as `sign`: each variant stands alone, and this variant's own failed build leaves no artifact and fails the download below
+    if: ${{ !cancelled() && github.ref == 'refs/heads/testing' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: *variants
+    steps:
+      - name: Download this variant's build result
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: published-${{ matrix.dir }}
+
+      - name: Read the build result
+        id: built
+        run: jq -r 'to_entries[] | "\(.key)=\(.value)"' published.json | tee -a "${GITHUB_OUTPUT}"
+
+      - name: Nothing built, nothing to attest
+        if: steps.built.outputs.skipped == 'true'
+        run: echo "Nothing built, nothing attested (the digest testing holds was attested when it was built)" | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      # push-to-registry stores the attestation next to the image in ghcr.io, so the registry login is needed
+      - name: Login to GitHub Container Registry
+        if: steps.built.outputs.published == 'true' && steps.built.outputs.skipped != 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Attest the build provenance of the digest
+        if: steps.built.outputs.published == 'true' && steps.built.outputs.skipped != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.built.outputs.image }}
+          subject-digest: ${{ steps.built.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false  # the storage record needs the extra artifact-metadata permission and nothing here reads it
 
   # main: each testing image becomes latest (see binaries_promote.py), independently. Nothing else moves latest.
   promote:

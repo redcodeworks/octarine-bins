@@ -1,0 +1,41 @@
+name: Promotable
+# The promotion PR checks that its own promotion would succeed: for each image, binaries_promote.py --check runs the SAME decision as the promote job on main (testing exists,
+# verifies with cosign.pub, and was built from the content this PR's merge result holds), and writes nothing. Without it a refused promote shows only after the merge, and
+# `latest` silently stays behind. Red because the build on `testing` has not finished (or testing's label names older content)? Wait for the build, then re-run the failed
+# jobs (a new push to testing runs them again). The job names are required contexts of the `main` ruleset (the hub adds them); do not rename them.
+# The variants are the matrix of binaries.yml; this is the second copy of that list and sanity.py fails when the two differ.
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  promotable:
+    name: "Promotable: ${{ matrix.name }}"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: octarine-bins, dir: src, label: "", cache: true}
+          - {name: octarine-bins-dx, dir: dx, label: "dx ", cache: false}
+          - {name: octarine-bins-gx, dir: gx, label: "gx ", cache: false}
+    steps:
+      - name: Checkout the merge result of the PR, which is what main will contain
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check that testing can be promoted (binaries_promote.py --check, no retag)
+        uses: ./.github/actions/promote-image
+        with:
+          name: ${{ matrix.name }}
+          dir: ${{ matrix.dir }}
+          check: --check
