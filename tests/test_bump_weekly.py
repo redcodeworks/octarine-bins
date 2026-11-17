@@ -1,5 +1,5 @@
 """The orchestration of the weekly bump (bump_weekly.py): one independent branch, commit and pull request per pin, an unchanged rerun, a moved upstream (new PR, older one closed),
-a stale PR, a failing pin, the dry run and the refusal to start from another checkout. Real git (a bare origin and a clone); gh, bump_run.py and bump_checks.py are stubs (the
+a stale PR, a failing pin, the dry run and the refusal to start from another checkout. Real git (a bare origin and a clone); gh, bump_run.py and bump_checks.py are the fakes of tests/fakes (the
 decisions per pin are bump_run.py's own business, see test_pins.py)."""
 import json
 import os
@@ -9,51 +9,11 @@ import sys
 
 import pytest
 
-from conftest import SCRIPTS, git
-
-GH = '''#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-db = Path(os.environ["DB"]); a = sys.argv[1:]
-prs = json.loads((db / "prs.json").read_text())
-if a[:2] == ["pr", "list"]:
-    print(json.dumps(prs))
-elif a[:2] == ["pr", "create"]:
-    head, title = a[a.index("--head") + 1], a[a.index("--title") + 1]
-    n = len(prs) + len((db / "created").read_text().splitlines() if (db / "created").exists() else []) + 100
-    open(db / "created", "a").write(f"{head}|{title}\\n")
-    (db / "prs.json").write_text(json.dumps(prs + [{"number": n, "headRefName": head}]))
-    print(f"https://example.test/pull/{n}")
-elif a[:2] == ["pr", "close"]:
-    open(db / "closed", "a").write(a[2] + "\\n")
-    (db / "prs.json").write_text(json.dumps([p for p in prs if str(p["number"]) != a[2]]))
-'''
-# moves its pin in pins.txt to UPSTREAM_<PIN> when that differs (UPSTREAM_<PIN>=fail: a failing check): one commit with the table row
-BUMP_RUN = '''#!/usr/bin/env python3
-import os, re, subprocess, sys
-pin = sys.argv[1]
-text = open("pins.txt").read()
-cur = re.search(rf"^{pin}=(.*)$", text, re.M).group(1)
-new = os.environ.get(f"UPSTREAM_{pin.upper()}", cur)
-if new == "fail":
-    print(f"::error::{pin}: cannot read upstream"); sys.exit(1)
-if new != cur:
-    open("pins.txt", "w").write(re.sub(rf"^{pin}=.*$", f"{pin}={new}", text, flags=re.M))
-    subprocess.run(["git", "commit", "-q", "-a", "-m", f"Bump {pin} to {new}\\n\\n{pin} | {cur} | {new} | upstream | 3"], check=True)
-'''
-BUMP_CHECKS = '''#!/usr/bin/env python3
-import os, sys
-open(os.environ["DB"] + "/checks", "a").write(" ".join(sys.argv[1:]) + "\\n")
-'''
-
+from conftest import FAKES, SCRIPTS, git
 
 class World:
     def __init__(self, tmp):
         self.tmp, self.db = tmp, tmp / "db"
-        self.bin = tmp / "bin"
-        self.bin.mkdir()
-        (self.bin / "gh").write_text(GH)
-        (self.bin / "gh").chmod(0o755)
         self.setup()
 
     def setup(self):
@@ -70,15 +30,15 @@ class World:
         scripts.mkdir(parents=True)
         for f in ("bump_weekly.py", "ci.py"):
             shutil.copy(SCRIPTS / f, scripts)
-        (scripts / "bump_run.py").write_text(BUMP_RUN)
-        (scripts / "bump_checks.py").write_text(BUMP_CHECKS)
+        for stub in ("bump_run.py", "bump_checks.py"):
+            shutil.copy(FAKES / stub, scripts)
         (self.clone / "pins.txt").write_text("scx=1\nextest=1\nghostty=1\nbuilder=1\n")
         git(self.clone, "add", "-A")
         git(self.clone, "commit", "-q", "-m", "init")
         git(self.clone, "push", "-q", "origin", "testing")
 
     def run(self, **env):
-        e = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "DB": str(self.db), "GITHUB_REPOSITORY": "o/r", "BUMP_CHECKS_WAIT": "0",
+        e = {**os.environ, "PATH": f"{FAKES}:{os.environ['PATH']}", "DB": str(self.db), "GITHUB_REPOSITORY": "o/r", "BUMP_CHECKS_WAIT": "0",
              "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t", **env}
         return subprocess.run([sys.executable, "-I", ".github/scripts/bump_weekly.py"], cwd=self.clone, env=e, capture_output=True, text=True)
 

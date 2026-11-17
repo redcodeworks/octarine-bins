@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Fake gh for the weekly bump test: `pr list`, `pr create` and `pr close` keep the open pull requests in $DB/prs.json and log creations ($DB/created) and closings ($DB/closed)."""
+import json
+import os
+import sys
+from pathlib import Path
+
+db = Path(os.environ["DB"])
+args = sys.argv[1:]
+prs = json.loads((db / "prs.json").read_text())
+
+if args[:2] == ["pr", "list"]:
+    print(json.dumps(prs))
+elif args[:2] == ["pr", "create"]:
+    head, title = args[args.index("--head") + 1], args[args.index("--title") + 1]
+    created = (db / "created").read_text().splitlines() if (db / "created").exists() else []
+    number = len(prs) + len(created) + 100
+    with open(db / "created", "a") as f:
+        f.write(f"{head}|{title}\n")
+    (db / "prs.json").write_text(json.dumps(prs + [{"number": number, "headRefName": head}]))
+    print(f"https://example.test/pull/{number}")
+elif args[:2] == ["pr", "close"]:
+    with open(db / "closed", "a") as f:
+        f.write(args[2] + "\n")
+    (db / "prs.json").write_text(json.dumps([p for p in prs if str(p["number"]) != args[2]]))
