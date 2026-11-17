@@ -75,6 +75,7 @@ def close_pr(number, comment):
 
 
 def main():
+    sys.stdout.reconfigure(line_buffering=True)  # the output of the child scripts and ours stays in order
     os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
     base = os.environ.get("BUMP_BASE", "testing")
     pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder").split()
