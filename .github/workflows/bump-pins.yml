@@ -6,8 +6,10 @@ name: Bump pins
 # the file (`gh workflow run bump-pins.yml --ref testing`; with `-f dry_run=true` it prints the pull requests it would open, keep or close, one per pin, and pushes and
 # creates nothing, and may be dispatched from any branch to try its scripts).
 #
-# One job, one script (.github/scripts/bump_weekly.py): every pin goes through bump_run.py (the decision scripts per kind and the pin writers). A failing pin (an upstream that
-# cannot be reached) changes nothing for that pin and turns the run red; the other pins still go in. Stay manual by the owner's decision: the tool versions (cosign, just,
+# One job PER PIN (the matrix below is the ONLY list of pins: adding a kind = one entry, plus its decision in bump_run.py), each running the same script (.github/scripts/bump_weekly.py)
+# with its pin in BUMP_PINS; every pin goes through bump_run.py (the decision scripts per kind and the pin writers). The jobs share nothing: each checks out testing itself, branches
+# are named per pin, bump_checks.py keys its test run and check runs by the bump commit, and the pins touch different files (uv.lock for python-deps, .python-version for python).
+# A failing pin (an upstream that cannot be reached) changes nothing for that pin and turns only its own job red (fail-fast is off); the other pins still go in. Stay manual by the owner's decision: the tool versions (cosign, just,
 # gitleaks, zizmor), the runner label and the signing key.
 #
 # Token: only the default GITHUB_TOKEN. Its pushes and pull requests start no workflow except workflow_dispatch, so bump_checks.py dispatches the Test workflow ON TESTING with
@@ -33,9 +35,13 @@ permissions:
 
 jobs:
   bump:
-    name: Bump the pins
+    name: Bump ${{ matrix.pin }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 60  # bump_checks.py waits for one test run per PR, one after another
+    timeout-minutes: 30  # bump_checks.py waits for the one test run of this pin's PR
+    strategy:
+      fail-fast: false
+      matrix:
+        pin: [scx, extest, ghostty, builder, python-deps, python]
     permissions:
       contents: write
       pull-requests: write
@@ -54,8 +60,9 @@ jobs:
       - name: Set up Python and uv
         uses: ./.github/actions/setup-ci-python
 
-      - name: Check every pin and open the one pull request
+      - name: Check the pin and open its pull request
         env:
+          BUMP_PINS: ${{ matrix.pin }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: |
           git config user.name "github-actions[bot]"
