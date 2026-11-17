@@ -71,9 +71,10 @@ def promote(image, directory):
         ci.emit("changed", "false")
         ci.emit("digest", tested)
         return
-    copy = ci.retry(["skopeo", "copy", "--all", "--preserve-digests", f"docker://{image}@{tested}", f"docker://{image}:latest"])
-    if copy.returncode != 0:
-        raise Fail(f"skopeo copy to {image}:latest failed (exit {copy.returncode})")
+    try:
+        registry.copy(f"{image}@{tested}", f"{image}:latest")
+    except ci.NetworkError as e:
+        raise Fail(str(e))
     try:
         registry.settled(image, "latest", tested)
         registry.cosign_check(["--key", "cosign.pub", f"{image}:latest"])

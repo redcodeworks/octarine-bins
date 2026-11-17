@@ -1,8 +1,9 @@
-"""Shared helpers of the CI scripts: log lines, step outputs, the retry helper (THE one for network calls), `gh api` reads and the list of an image's build inputs.
+"""The ONE shared-helpers file of the CI scripts: log lines, step outputs, the @retry decorator (THE retry for network calls), `gh api` reads and the list of an image's build inputs.
 
 Standard library only. Scripts start with `python3 -I`, which keeps the script's own directory off sys.path, so each script adds it back with two lines
 (see any script) before it imports this module.
 """
+import functools
 import json
 import os
 import re
@@ -59,36 +60,67 @@ def stderr_of(proc):
     return (proc.stderr or b"").decode(errors="replace")
 
 
-def retry(cmd, capture=False, ok=None, permanent=None, tries=None, delay=None, **kw):
-    """Run `cmd` up to RETRY_TRIES (3) times with a growing pause (RETRY_DELAY * try, default 5 s), for calls to the network that fail for a moment.
+class NetworkError(Exception):
+    """A network command (skopeo copy, podman push, cosign sign) failed; the usual transient error to retry."""
 
-    `ok(proc)` says a try succeeded (default: exit status 0); `permanent(proc)` says retrying is pointless (a missing tag, a bad signature). Returns the last
-    CompletedProcess; the caller looks at it and decides. Not for commands that must not run twice.
+
+def retry(*, on, attempts=None, delay=None, backoff=True):
+    """Decorator for a NETWORK call that may fail for a moment (a registry, cosign's lookups, the GitHub API); put it on nothing else.
+
+    What it retries: only the exception types in `on` (the transient failures). Any other exception, in particular a definitive answer such as `Absent` (the tag is not
+    there) or `NotVerified` (the signature is not valid), propagates at once and is never retried: a permanent failure must not be dressed up as a flaky network.
+    How long it waits: `attempts` tries (default RETRY_TRIES, 3) with a pause of `delay` seconds (default RETRY_DELAY, 5) times the try number before the next try
+    (`backoff=False`: the same pause every time). Both are read when the function is called, so the environment can shorten them for tests.
+    What it re-raises: after the last try, the last error itself (same type, so callers catch it as before) with ` (failed N attempts)` added to its message.
+    Not for calls that must not run twice. Every failed try prints a ::warning:: line.
     """
-    tries = int_env("RETRY_TRIES", 3) if tries is None else tries
-    delay = int_env("RETRY_DELAY", 5) if delay is None else delay
-    ok = ok or (lambda p: p.returncode == 0)
-    for i in range(1, tries + 1):
-        proc = run(cmd, capture, **kw)
-        if ok(proc) or (permanent and permanent(proc)):
-            return proc
-        if i < tries:
-            warning(f"try {i}/{tries} failed (exit {proc.returncode}): {' '.join(cmd[:2])} {text(stderr_of(proc), 200)}; retrying in {delay * i} s")
-            time.sleep(delay * i)
-    return proc
+    def decorate(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            tries = int_env("RETRY_TRIES", 3) if attempts is None else attempts
+            pause = int_env("RETRY_DELAY", 5) if delay is None else delay
+            for i in range(1, tries + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except on as e:
+                    if i == tries:
+                        e.args = (f"{e} (failed {tries} attempts)",)
+                        raise
+                    wait = pause * i if backoff else pause
+                    warning(f"{fn.__name__}: try {i}/{tries} failed ({text(str(e), 200)}); retrying in {wait} s")
+                    time.sleep(wait)
+        return wrapper
+    return decorate
 
 
-def gh_api(path, paginate=False):
-    """A `gh api` GET read, parsed. None when it cannot be read (a 404 is not retried). Paginated reads of lists return the pages joined."""
+class GhError(Exception):
+    pass
+
+
+class GhNotFound(Exception):
+    pass
+
+
+@retry(on=(GhError,))
+def gh_get(path, paginate):
     cmd = ["gh", "api"] + (["--paginate", "--slurp"] if paginate else []) + [path]
-    proc = retry(cmd, capture=True, permanent=lambda p: b"404" in (p.stderr or b"") or b"Not Found" in (p.stderr or b""))
+    proc = run(cmd, capture=True)
+    err = stderr_of(proc)
     if proc.returncode != 0:
-        return None
+        raise (GhNotFound if "404" in err or "Not Found" in err else GhError)(f"gh api {path}: {text(err, 200)}")
     try:
         data = json.loads(proc.stdout)
     except ValueError:
-        return None
+        raise GhError(f"gh api {path}: the answer is not JSON")
     return [item for page in data for item in page] if paginate else data
+
+
+def gh_api(path, paginate=False):
+    """A `gh api` GET read, parsed; None when it cannot be read (a 404 at once, anything else after the retries). Paginated lists come back joined."""
+    try:
+        return gh_get(path, paginate)
+    except (GhNotFound, GhError):
+        return None
 
 
 def vkey(version):

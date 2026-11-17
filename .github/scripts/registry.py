@@ -1,12 +1,15 @@
-"""Registry and signature reads that keep "could not be read" apart from "is not there": skopeo and cosign behind the retry helper of ci.py.
+"""Every registry and signature call of the pipeline (skopeo, cosign, podman push), each network call under `@ci.retry`, so "could not be read" is never taken for "is not there".
 
-Absent (exit 3 in the scripts): skopeo said explicitly that the tag or repository does not exist; nothing is retried. ReadError (exit 4): anything else (network,
-TLS, 5xx, rate limit), retried, still failing after the last try. NotVerified (exit 5): cosign said explicitly the signature is not there or not valid. Callers decide
-what each means: a missing candidate may mean "build instead", an unreadable registry must never silently mean that.
+Typed answers: `Absent` = skopeo said explicitly that the tag or repository does not exist; `NotVerified` = cosign said explicitly the signature is missing or invalid. Both are
+definitive, so they are NOT in a retry's `on` list and surface at once. `ReadError` = anything else (network, TLS, 5xx, rate limit): retried, and re-raised after the last try.
+`ci.NetworkError` is the same for the write calls (copy, push, sign). Callers decide what each means: a missing candidate may mean "build instead", an unreadable registry must
+never silently mean that.
 """
 import hashlib
 import re
-import time
+import subprocess
+import tempfile
+from pathlib import Path
 
 import ci
 
@@ -28,11 +31,11 @@ UNSIGNED = re.compile(r"no signatures found|no matching signatures|invalid signa
                       r"|not found|none of the expected identities", re.I)
 
 
-def read(mode, ref, tries=None):
-    """`skopeo inspect --raw` (mode raw) or `--config` (mode config) of an image reference without docker://; returns the bytes."""
+def inspect_once(mode, ref, linux_amd64=False):
+    """ONE `skopeo inspect --raw|--config` of an image reference without docker://; returns the bytes. No retry (read() adds it)."""
     flag = {"raw": "--raw", "config": "--config"}[mode]
-    proc = ci.retry(["skopeo", "inspect", flag, f"docker://{ref}"], capture=True, tries=tries,
-                    ok=lambda p: p.returncode == 0 and bool(p.stdout), permanent=lambda p: ABSENT.search(ci.stderr_of(p)) is not None)
+    platform = ["--override-os", "linux", "--override-arch", "amd64"] if linux_amd64 else []
+    proc = ci.run(["skopeo", "inspect", *platform, flag, f"docker://{ref}"], capture=True)
     if proc.returncode == 0 and proc.stdout:
         return proc.stdout
     err = ci.stderr_of(proc)
@@ -41,37 +44,72 @@ def read(mode, ref, tries=None):
     raise ReadError(f"could not read {ref} (a read error, NOT a missing image): {ci.text(err)}")
 
 
-def digest(image, tag, tries=None):
+@ci.retry(on=(ReadError,))
+def read(mode, ref, linux_amd64=False):
+    """`skopeo inspect` with the retries: raw manifest or image config bytes; raises Absent at once, ReadError after the last try."""
+    return inspect_once(mode, ref, linux_amd64)
+
+
+def digest(image, tag):
     """The manifest digest of image:tag: the sha256 of the raw manifest bytes, so it is the same for every tag that points at the same content."""
-    return "sha256:" + hashlib.sha256(read("raw", f"{image}:{tag}", tries)).hexdigest()
+    return "sha256:" + hashlib.sha256(read("raw", f"{image}:{tag}")).hexdigest()
 
 
-def settled(image, tag, want, tries=None, wait=None):
-    """Read a tag back after a write until it shows the expected digest: the registry may answer right after a push or copy with the PREVIOUS manifest of
-    the tag (seen on GHCR 2026-11-14), or fail the read for a moment. Raises ReadError after the last read, naming what it saw (the digest, absent, unreadable)."""
-    tries = ci.int_env("READBACK_TRIES", 6) if tries is None else tries
-    wait = ci.int_env("READBACK_WAIT", 5) if wait is None else wait
-    got = ""
-    for i in range(1, tries + 1):
+def settled(image, tag, want):
+    """Read a tag back after a write until it shows the expected digest: the registry may answer right after a push or copy with the PREVIOUS manifest of the tag (seen on GHCR
+    2026-11-14), or fail the read for a moment. Reads READBACK_TRIES (6) times, READBACK_WAIT (5) seconds apart; raises ReadError naming what it saw (digest, absent, unreadable)."""
+    @ci.retry(attempts=ci.int_env("READBACK_TRIES", 6), delay=ci.int_env("READBACK_WAIT", 5), backoff=False, on=(ReadError,))
+    def read_back():
         try:
-            got = digest(image, tag, tries=1)
+            got = "sha256:" + hashlib.sha256(inspect_once("raw", f"{image}:{tag}")).hexdigest()
         except Absent:
             got = "absent"
         except ReadError:
             got = "unreadable"
-        if got == want:
-            return
-        if i < tries:
-            time.sleep(wait)
-    raise ReadError(f"{image}:{tag} is {got}, expected {want} (after {tries} reads)")
+        if got != want:
+            raise ReadError(f"{image}:{tag} is {got}, expected {want}")
+
+    read_back()
 
 
-def cosign_check(args, tries=None):
-    """`cosign verify <args>`: returns when verified, raises NotVerified (cosign said no, not retried) or ReadError (could not complete, retried)."""
-    proc = ci.retry(["cosign", "verify", *args], capture=True, tries=tries, permanent=lambda p: UNSIGNED.search(ci.stderr_of(p)) is not None)
+@ci.retry(on=(ReadError,))
+def cosign_check(args):
+    """`cosign verify <args>`: returns when verified, raises NotVerified at once (cosign said no) or ReadError after the retries (it could not complete)."""
+    proc = ci.run(["cosign", "verify", *args], capture=True)
     if proc.returncode == 0:
         return
     err = ci.stderr_of(proc)
     if UNSIGNED.search(err):
         raise NotVerified(f"not verified: {ci.text(err)}")
     raise ReadError(f"could not complete the verification (a read error, NOT a bad signature): {ci.text(err)}")
+
+
+def write(cmd):
+    """One network command that changes something; its stdout passes through, a failure raises NetworkError. The decorated calls below are the only users."""
+    proc = ci.run(cmd, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise ci.NetworkError(f"{' '.join(cmd[:2])} failed (exit {proc.returncode}): {ci.text(ci.stderr_of(proc), 200)}")
+
+
+@ci.retry(on=(ci.NetworkError,))
+def copy(source, target):
+    """Registry-side copy of a digest to a tag (same digest, same signature): `skopeo copy --all --preserve-digests`."""
+    write(["skopeo", "copy", "--all", "--preserve-digests", f"docker://{source}", f"docker://{target}"])
+
+
+@ci.retry(on=(ci.NetworkError,))
+def push(local_image, target):
+    """`podman push` of a local image; returns the manifest digest podman reports (a push is idempotent for the same content)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        digestfile = Path(tmp) / "digest"
+        write(["podman", "push", f"--digestfile={digestfile}", local_image, target])
+        value = digestfile.read_text().strip() if digestfile.exists() else ""
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+        raise ci.NetworkError(f"podman push gave no digest for {target} ('{value}')")
+    return value
+
+
+@ci.retry(on=(ci.NetworkError,))
+def sign(reference):
+    """`cosign sign` of image@digest with the key in COSIGN_PRIVATE_KEY, in the old bundle format (https://github.com/containers/container-libs/issues/388)."""
+    write(["cosign", "sign", "-y", "--new-bundle-format=false", "--use-signing-config=false", "--key", "env://COSIGN_PRIVATE_KEY", reference])

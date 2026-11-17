@@ -135,12 +135,11 @@ def bump_builder(root):
     new = "sha256:" + hashlib.sha256(manifest).hexdigest()
     if new == cur_digest:
         return f"nothing to bump: the pin is the current digest of {major}"
-    proc = ci.retry(["skopeo", "inspect", "--override-os", "linux", "--override-arch", "amd64", "--config", f"docker://{repo}:{major}"], capture=True)
     try:
-        created = json.loads(proc.stdout).get("created") or ""
-    except ValueError:
+        created = json.loads(registry.read("config", f"{repo}:{major}", linux_amd64=True)).get("created") or ""
+    except (registry.Absent, registry.ReadError, ValueError):
         created = ""
-    if proc.returncode != 0 or not created:
+    if not created:
         raise Fail(f"cannot read the creation date of {repo}:{major}")
     age = days_since(created) or 0
     minimum = int(os.environ.get("MIN_AGE_DAYS", "7"))
