@@ -22,7 +22,7 @@ The base image also carries the package lists of the default octarine-os image. 
 | gx | [![gx, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml?query=branch%3Amain) | [![gx, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml?query=branch%3Atesting) |
 | checks | not run on main | [![checks, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml?query=branch%3Atesting) |
 
-The badges show the build and signing of each image (`octarine-bins`, `-dx`, `-gx`); a new workflow shows "no status" until its first run. Each image moves its own `latest` after its own build, so they do not wait for each other. `dx` and `gx` carry package lists but no binaries yet.
+The badges show the build and signing of each image (`octarine-bins`, `-dx`, `-gx`). Each image moves its own `latest` after its own build, so they do not wait for each other. `dx` and `gx` carry package lists but no binaries yet.
 
 ## Why
 
