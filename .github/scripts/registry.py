@@ -51,13 +51,6 @@ def read(mode, ref, linux_amd64=False):
     return inspect_once(mode, ref, linux_amd64)
 
 
-@ci.retry(on=(ReadError, Absent), attempts=5)
-def read_by_digest(mode, image, digest):
-    """Read an image the registry itself named a moment ago (a digest taken from a tag): it cannot be absent, so an "absent" answer is registry lag and is retried like a read
-    error (5 tries, 5 to 20 s apart), then raised as it is."""
-    return inspect_once(mode, f"{image}@{digest}")
-
-
 def digest(image, tag):
     """The manifest digest of image:tag: the sha256 of the raw manifest bytes, so it is the same for every tag that points at the same content."""
     return "sha256:" + hashlib.sha256(read("raw", f"{image}:{tag}")).hexdigest()
