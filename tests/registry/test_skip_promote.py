@@ -18,7 +18,7 @@ def repo(tmp_path):
     files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/builder.env": "b", "installer/install.sh": "i1",
              "dx/Containerfile": "dc", "dx/components.tsv": "dt", "dx/packages/required-fedora.txt": "dp", "dx/README.md": "doc",
              "gx/Containerfile": "gc", "gx/components.tsv": "gt", "gx/packages/required-fedora.txt": "gp", "gx/README.md": "doc",
-             "README.md": "doc", "Justfile": "j", "tests/t.py": "t", ".github/workflows/binaries.yml": "wf", ".github/workflows/binaries-dx.yml": "wf",
+             "README.md": "doc", "Justfile": "j", "tests/t.py": "t", ".github/workflows/binaries.yml": "wf",
              ".github/actions/build-image/action.yml": "ba", ".github/scripts/push_image.py": "p", ".github/scripts/binaries_layout.py": "l"}
     for name, content in files.items():
         (r / name).parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +50,7 @@ RULES = [
     (None, "src", True),
     # tooling and docs: no image content, whatever the image
     ("Justfile", "src", True), ("Justfile", "dx", True),
-    (".github/workflows/binaries.yml", "src", True), (".github/workflows/binaries-dx.yml", "dx", True),
+    (".github/workflows/binaries.yml", "src", True),
     (".github/actions/build-image/action.yml", "gx", True), (".github/scripts/push_image.py", "src", True), (".github/scripts/binaries_layout.py", "dx", True),
     ("tests/t.py", "src", True), ("README.md", "src", True), ("dx/README.md", "dx", True), ("gx/README.md", "gx", True),
     # content: the base
