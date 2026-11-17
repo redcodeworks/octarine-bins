@@ -98,7 +98,7 @@ runs:
       run: |
         export BUILD_ARGS="--layers --cache-from ${IMAGE}-cache"
         [[ "${PUBLISH}" != true ]] || BUILD_ARGS+=" --cache-to ${IMAGE}-cache"
-        just build "${NAME}:${VERSION}" "${VERSION}" "${GITHUB_SHA}" "${DIR}"
+        just build "${NAME}:${VERSION}" "${DIR}"
 
     - name: Check the layout
       if: steps.skip.outputs.skip != 'true'
@@ -116,6 +116,7 @@ runs:
       shell: bash
       env:
         NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.dir }}
         IMAGE: ${{ steps.names.outputs.image }}
         VERSION: ${{ steps.names.outputs.version }}
-      run: uv run --frozen --no-dev python -I .github/scripts/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
+      run: uv run --frozen --no-dev python -I .github/scripts/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}" "${DIR}"

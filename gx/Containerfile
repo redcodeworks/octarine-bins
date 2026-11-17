@@ -18,10 +18,8 @@ COPY --from=installer . /out/packages/
 
 FROM scratch
 
-# Build values passed by CI (podman build --build-arg ...); no secrets
-ARG IMAGE_VERSION=dev
-ARG IMAGE_REVISION=unknown
-ARG IMAGE_CREATED=unknown
+# No per-build value (version, revision, date) goes into the image: it would change the digest of identical content. The build is identified by registry tags
+# (<date>-<sha> and inputs-<hash>, see CLAUDE.md). `just build` passes --timestamp 0 so file times and "created" are fixed too.
 
 COPY --from=assemble /out /
 
@@ -31,7 +29,4 @@ LABEL maintainer="redcodeworks/octarine-bins" \
       org.opencontainers.image.title="octarine-bins-gx" \
       org.opencontainers.image.description="The octarine-os gx image inputs: gaming package lists and installers (no binary component yet)" \
       org.opencontainers.image.url="https://github.com/redcodeworks/octarine-bins" \
-      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-bins" \
-      org.opencontainers.image.version="${IMAGE_VERSION}" \
-      org.opencontainers.image.revision="${IMAGE_REVISION}" \
-      org.opencontainers.image.created="${IMAGE_CREATED}"
+      org.opencontainers.image.source="https://github.com/redcodeworks/octarine-bins"
