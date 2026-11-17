@@ -30,7 +30,10 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
 layout image="octarine-bins:dev" dir="src":
     uv run --frozen --no-dev python -I .github/scripts/binaries_layout.py "{{ image }}" "{{ dir }}"
 
-# Run the tests: pytest through uv (the locked dependencies, Python from .python-version) and the installer test (bash, it tests installer/install.sh)
-test:
-    uv run --frozen pytest
-    bash tests/installer.sh
+# Run the tests: pytest through uv (the locked dependencies, Python from .python-version) and the bash tests (installer). group is one directory of tests/ (CI runs one job per group); empty runs all
+test group="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="tests/{{ group }}"
+    uv run --frozen pytest "${dir}"
+    for t in $(find "${dir}" -name '*.sh' | sort); do bash "$t"; done
