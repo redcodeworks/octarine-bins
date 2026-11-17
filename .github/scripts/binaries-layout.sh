@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Check the file listing of a built binaries image (`podman export | tar -t`) against the layout octarine-os reads (its build_files/install-binaries.sh).
 #
-#   binaries-layout.sh [--assembled] [--allow-empty] <listing file> <schedulers.tsv> <component>...
+#   binaries-layout.sh [--assembled] [--allow-empty] [--packages "<file> ..."] <listing file> <schedulers.tsv> <component>...
 #
 # Per component: scx needs scx/bin/<name> for every scheduler of the manifest and scx/schedulers.tsv; extest both libraries; every
 # component needs <c>/SOURCE, <c>/BUILDINFO and <c>/LICENSES/*. The assembled image is checked with --assembled, which also needs the top-level SOURCE, BUILDINFO, LICENSES/ and COMPONENTS and
-# exactly the named components. --allow-empty (the dx and gx images, never the base) accepts zero components: then only COMPONENTS and BUILDINFO are required. Nothing else is judged here (the build already ran the smoke tests and the ELF checks).
+# exactly the named components. --allow-empty (the dx and gx images, never the base) accepts zero components: then only COMPONENTS and BUILDINFO are required. --packages (dx and gx, never the base) also requires packages/<file> for each name in the quoted list (the lists and the installers) and allows the top-level `packages` directory; the base must not have one. Nothing else is judged here (the build already ran the smoke tests and the ELF checks).
 set -euo pipefail
-assembled=0 allow_empty=0
+assembled=0 allow_empty=0 packages=""
 while [[ "${1:-}" == --* ]]; do
     case "$1" in
         --assembled) assembled=1 ;;
         --allow-empty) allow_empty=1 ;;
+        --packages) packages=${2:?names of the files in packages/}; shift ;;
         *) echo "binaries-layout.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -47,8 +48,9 @@ if [[ "${assembled}" == 1 ]]; then
         need SOURCE
         grep -q '^LICENSES/.' "${normfile}" || { echo "::error::the binaries image has no top-level LICENSES" >&2; status=1; }
     fi
-    extra=$(norm | cut -d/ -f1 | sort -u | grep -vxE 'SOURCE|BUILDINFO|COMPONENTS|LICENSES' | grep -vxF -f <(printf '%s\n' "$@") || true)
+    extra=$(norm | cut -d/ -f1 | sort -u | grep -vxE "SOURCE|BUILDINFO|COMPONENTS|LICENSES${packages:+|packages}" | grep -vxF -f <(printf '%s\n' "$@") || true)
     [[ -z "${extra}" ]] || { echo "::error::the binaries image holds unexpected top-level entries: ${extra//$'\n'/ }" >&2; status=1; }
 fi
+for f in ${packages}; do need "packages/${f}"; done
 [[ "${status}" == 0 ]] && echo "binaries image layout ok: ${*:-<no component>}"
 exit "${status}"
