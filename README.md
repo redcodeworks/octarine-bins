@@ -6,7 +6,12 @@ The few programs that [octarine-os](https://github.com/redcodeworks/octarine-os)
 - [extest](https://github.com/Supreeeme/extest), the `libextest.so` libraries that make Steam Input work on Wayland,
 - [Ghostty](https://ghostty.org), the terminal, built with its pinned Zig toolchain.
 
-Two more images, `octarine-bins-dx` and `octarine-bins-gx`, are reserved for programs that only the developer (dx) or gaming (gx) variants of octarine-os need; they are empty for now. Each of the three is built, signed and published on its own.
+Two more images follow the same pattern for the other octarine-os variants:
+
+- `octarine-bins-dx`: what the developer (dx) variant installs besides the base, currently the developer package list.
+- `octarine-bins-gx`: what the gaming (gx) variant installs besides the base, currently the gaming package lists (Fedora packages, Steam from negativo17, Sunshine from COPR; no RPM Fusion).
+
+Each of the three is built, signed and published on its own.
 
 ## Why
 
@@ -18,7 +23,7 @@ Nothing, if you only use octarine-os: its build picks the image up by itself. To
 
 ## Install and usage
 
-The image is not meant to be run. It is `FROM scratch` and holds one directory per program (`/scx`, `/extest`, `/ghostty`), the license texts and source records of each, and a list of the components. A consumer copies from it, for example by mounting it in a step of its own Containerfile:
+The image is not meant to be run. It is `FROM scratch` and holds one directory per program (`/scx`, `/extest`, `/ghostty`), the license texts and source records of each, and a list of the components. The dx and gx images also hold a `packages` directory with the package lists and the scripts that install them. A consumer copies from it, for example by mounting it in a step of its own Containerfile:
 
 ```
 RUN --mount=type=bind,from=ghcr.io/redcodeworks/octarine-bins:latest,target=/binaries ...
@@ -45,6 +50,7 @@ Apache-2.0 for the code in this repository (see `LICENSE`). The programs it buil
 - [scx](https://github.com/sched-ext/scx) by the sched-ext authors.
 - [extest](https://github.com/Supreeeme/extest) by Supreeeme and contributors.
 - [Ghostty](https://github.com/ghostty-org/ghostty) by Mitchell Hashimoto and contributors, and [Zig](https://ziglang.org) by the Zig Software Foundation and contributors.
+- The packages the lists name come from Fedora, [negativo17](https://negativo17.org) (Steam) and the LizardByte COPR ([Sunshine](https://github.com/LizardByte/Sunshine)).
 
 ## Disclaimer
 

@@ -28,8 +28,8 @@ exit "${COSIGN_RC:-0}"
 F
 chmod +x "$bin"/*
 repo="$root/repo"; git init -q "$repo"; git -C "$repo" config user.email t@t; git -C "$repo" config user.name t
-mkdir -p "$repo/src/lib" "$repo/dx" "$repo/.github/actions/build-image" "$repo/.github/workflows" "$repo/.github/scripts"
-echo one > "$repo/src/f"; echo l1 > "$repo/src/lib/x"; echo b > "$repo/src/builder.env"; echo d1 > "$repo/dx/f"; echo ba > "$repo/.github/actions/build-image/action.yml"; echo doc > "$repo/README"; echo wf > "$repo/.github/workflows/binaries.yml"; echo wf > "$repo/.github/workflows/binaries-dx.yml"; echo p > "$repo/.github/scripts/push-image.sh"
+mkdir -p "$repo/src/lib" "$repo/dx" "$repo/installer" "$repo/.github/actions/build-image" "$repo/.github/workflows" "$repo/.github/scripts"
+echo one > "$repo/src/f"; echo l1 > "$repo/src/lib/x"; echo b > "$repo/src/builder.env"; echo d1 > "$repo/dx/f"; echo i1 > "$repo/installer/install.sh"; echo ba > "$repo/.github/actions/build-image/action.yml"; echo doc > "$repo/README"; echo wf > "$repo/.github/workflows/binaries.yml"; echo wf > "$repo/.github/workflows/binaries-dx.yml"; echo p > "$repo/.github/scripts/push-image.sh"
 echo l > "$repo/.github/scripts/binaries-layout.sh"; echo j > "$repo/Justfile"; echo t > "$repo/.github/workflows/test.yml"
 git -C "$repo" add .; git -C "$repo" commit -q -m one
 export REV; REV=$(git -C "$repo" rev-parse HEAD)
@@ -69,5 +69,10 @@ skip X=1
 check "base: only dx/ changed: skip=true" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
 dir=dx; skip X=1
 check "dx: dx/ changed: skip=false" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
+git -C "$repo" reset -q --hard "$REV"; echo i2 > "$repo/installer/install.sh"; git -C "$repo" commit -q -am installer
+dir=dx; skip X=1
+check "dx: the shared installer changed: skip=false" bash -c "[ $rc = 0 ] && grep -qx skip=false '$root/gho'"
+dir=src; skip X=1
+check "base: the shared installer changed: skip=true (the base carries no installer)" bash -c "[ $rc = 0 ] && grep -qx skip=true '$root/gho'"
 echo; echo "passed: $pass, failed: $failn"
 [ "$failn" = 0 ]
