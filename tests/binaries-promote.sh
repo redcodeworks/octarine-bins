@@ -36,7 +36,7 @@ export LOG="$root/log" ST="$st"
 IMG=ghcr.io/redcodeworks/octarine-bins
 # a real repository: the revision the testing image names, then a promotion merge commit whose src/ tree equals it (src/ is what is compared, not the commit)
 repo="$root/repo"; git init -q "$repo"; git -C "$repo" config user.email t@t; git -C "$repo" config user.name t
-mkdir -p "$repo/src/lib" "$repo/dx"; echo one > "$repo/src/f"; echo l1 > "$repo/src/lib/x"; echo b1 > "$repo/src/builder.env"; echo d1 > "$repo/dx/f"; echo doc > "$repo/README"; git -C "$repo" add .; git -C "$repo" commit -q -m one
+mkdir -p "$repo/src/lib" "$repo/dx" "$repo/installer"; echo i1 > "$repo/installer/install.sh"; echo one > "$repo/src/f"; echo l1 > "$repo/src/lib/x"; echo b1 > "$repo/src/builder.env"; echo d1 > "$repo/dx/f"; echo doc > "$repo/README"; git -C "$repo" add .; git -C "$repo" commit -q -m one
 export REV; REV=$(git -C "$repo" rev-parse HEAD)
 git -C "$repo" commit -q --amend -m "merge commit, same src/ tree"
 dir=src  # the image directory promote is told (src, dx or gx)
@@ -67,7 +67,7 @@ check "testing was built from another src/ tree: fails loudly, nothing copied" b
 rm -f "$st/testing"
 promote X=1
 check "no testing image at all: fails, nothing copied, nothing is built instead" bash -c "[ $rc != 0 ] && grep -q 'build on testing first' '$root/run' && [ \$(grep -c '^skopeo copy' '$LOG') = 0 ]"
-# the dx image: its trees are dx/, src/lib and src/builder.env, so a change of the base's own files is not a change of dx
+# the dx image: its trees are dx/, src/lib, src/builder.env and installer/, so a change of the base's own files is not a change of dx
 dir=dx; printf tested > "$st/testing"; printf older > "$st/latest"
 promote X=1
 check "dx: src/ changed since the tested build but dx/, src/lib and the builder did not: dx promotes" bash -c "[ $rc = 0 ] && grep -qx 'changed=true' '$root/gho'"

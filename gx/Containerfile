@@ -1,6 +1,6 @@
 # The gx binaries image, ghcr.io/redcodeworks/octarine-bins-gx (.github/workflows/binaries-gx.yml): binaries only the gx image of octarine-os needs.
-# No component yet: the assemble stage writes an EMPTY /COMPONENTS (zero components = nothing to install) and an empty BUILDINFO, and the image holds nothing else.
-# Build: `just build octarine-bins-gx:dev dev unknown gx` (context: this directory; --build-context lib=src/lib is the shared helpers). To add a component, see gx/README.md.
+# No binary component yet: the assemble stage writes an EMPTY /COMPONENTS (zero components = no binary to install) and an empty BUILDINFO. The image also carries the gaming package list(s) and their installers under /packages: fedora.txt, negativo17.txt, copr.txt (the gaming package lists), install.sh, install-copr.sh.
+# Build: `just build octarine-bins-gx:dev dev unknown gx` (context: this directory; --build-context lib=src/lib is the shared helpers, installer=installer the shared package installers). To add a component, see gx/README.md.
 ARG BUILDER
 
 # ---- component stages go here, one per component (see src/Containerfile for the pattern: FROM ${BUILDER} AS <name>, COPY --from=lib . /binaries/lib, COPY <name> /binaries/<name>, build, stage.sh)
@@ -11,6 +11,10 @@ FROM ${BUILDER} AS assemble
 COPY components.tsv /
 COPY --from=lib assemble.sh /
 RUN mkdir -p /out && /assemble.sh --allow-empty /out /components.tsv
+# after assemble.sh: it refuses a directory that is not a component
+# /packages: this image's lists (gx/packages/) and the shared installers (installer/), side by side; the contract with octarine-os is in CLAUDE.md
+COPY packages /out/packages
+COPY --from=installer . /out/packages/
 
 FROM scratch
 
@@ -25,7 +29,7 @@ LABEL maintainer="redcodeworks/octarine-bins" \
       org.opencontainers.image.authors="redcodeworks" \
       org.opencontainers.image.vendor="redcodeworks" \
       org.opencontainers.image.title="octarine-bins-gx" \
-      org.opencontainers.image.description="Prebuilt binaries only the octarine-os gx image needs (no component yet)" \
+      org.opencontainers.image.description="The octarine-os gx image inputs: gaming package lists and installers (no binary component yet)" \
       org.opencontainers.image.url="https://github.com/redcodeworks/octarine-bins" \
       org.opencontainers.image.source="https://github.com/redcodeworks/octarine-bins" \
       org.opencontainers.image.version="${IMAGE_VERSION}" \
