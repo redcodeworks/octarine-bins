@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The weekly bump check of ONE pin. Usage: bump_run.py scx|extest|ghostty|builder|python-deps   (from the repository root, on a clean checkout; GH_TOKEN, a git identity, skopeo for the builder)
+"""The weekly bump check of ONE pin. Usage: bump_run.py scx|extest|ghostty|builder|python-deps|python   (from the repository root, on a clean checkout; GH_TOKEN, a git identity, skopeo for the builder)
 
 Decides (upstream_check.check / ghostty_check.check, or the registry for the builder) and, when something is newer, writes the pin into the working tree and makes ONE commit for it;
 the commit message ends with the row of the pull request's table: pin | from | to | what changed upstream | days the new value has existed. bump_weekly.py runs every pin on its
 own checkout of testing, one commit and one pull request per pin. Exit 1 when the pin's check FAILED (a registry that cannot be reached, a bad pin): the working tree is restored
 then. Prints one line per pin (also into the job summary).
 
-Kinds: `python-deps` (`uv lock --upgrade`: newer locked versions of the CI scripts' own dependencies, uv.lock only), the source pins (scx, extest; ghostty, which also writes the Zig pin: Zig never moves alone) and the Fedora builder digest of src/builder.env (the same major, the newest digest
+Kinds: `python` (the newest patch release of the minor in .python-version that the pinned uv can install, read from uv's own download list: no network; .python-version only), `python-deps` (`uv lock --upgrade`: newer locked versions of the CI scripts' own dependencies, uv.lock only), the source pins (scx, extest; ghostty, which also writes the Zig pin: Zig never moves alone) and the Fedora builder digest of src/builder.env (the same major, the newest digest
 of the tag once it has been the tag's value for MIN_AGE_DAYS, default 7: the creation date of the image is the stand-in for "has not been replaced since", a registry has no tag history).
 """
 import hashlib
@@ -173,6 +173,31 @@ def bump_python_deps(root):
                       "https://github.com/redcodeworks/octarine-bins/blob/testing/pyproject.toml (the ranges stay, only uv.lock moves)", "n/a")
 
 
+def newest_python(listing, current):
+    """The newest default CPython of the same minor as `current` (`3.14.10`) in `uv python list --output-format json`, or None."""
+    want = tuple(current.split(".")[:2])
+    found = {tuple(int(x) for x in e["version"].split(".")) for e in listing
+             if e["implementation"] == "cpython" and e["variant"] == "default" and tuple(e["version"].split(".")[:2]) == want and e["version"].replace(".", "").isdigit()}
+    return ".".join(map(str, max(found))) if found else None
+
+
+def bump_python(root):
+    path = Path(root) / ".python-version"
+    current = path.read_text().strip()
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", current):
+        raise Fail(f".python-version is '{current}', not an exact x.y.z version")
+    proc = subprocess.run(["uv", "python", "list", "--only-downloads", "--output-format", "json", ".".join(current.split(".")[:2])], cwd=root, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise Fail(f"uv python list failed: {ci.text(proc.stderr, 200)}")
+    new = newest_python(json.loads(proc.stdout), current)
+    if new is None:
+        raise Fail(f"uv lists no CPython {'.'.join(current.split('.')[:2])}")
+    if tuple(map(int, new.split("."))) <= tuple(map(int, current.split("."))):
+        return f"nothing to bump: {current} is the newest patch release this uv installs"
+    path.write_text(new + "\n")
+    return commit_pin("python", [".python-version"], f"Bump the CI Python to {new}", current, new, "https://www.python.org/downloads/release/python-" + new.replace(".", "") + "/", "n/a")
+
+
 def bump(pin, root="."):
     """Check one pin; returns the status line, raises Fail. The working tree is restored on failure."""
     if git("diff", "--quiet").returncode != 0:
@@ -186,13 +211,15 @@ def bump(pin, root="."):
             return bump_builder(root)
         case "python-deps":
             return bump_python_deps(root)
+        case "python":
+            return bump_python(root)
         case _:
             raise Fail(f"unknown pin '{pin}'")
 
 
 def main(argv=None):
     ap = ci.arg_parser(__doc__)
-    ap.add_argument("pin", choices=["scx", "extest", "ghostty", "builder", "python-deps"], help="the pin to check")
+    ap.add_argument("pin", choices=["scx", "extest", "ghostty", "builder", "python-deps", "python"], help="the pin to check")
     pin = ap.parse_args(argv).pin
     try:
         status = bump(pin)
