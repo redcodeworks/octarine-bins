@@ -15,14 +15,12 @@ The base image also carries the package lists of the default octarine-os image. 
 
 ## Build status
 
-| Image | main | testing |
+| Workflow | main | testing |
 |---:|---:|---:|
-| base | [![base, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Amain) | [![base, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Atesting) |
-| dx | [![dx, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml?query=branch%3Amain) | [![dx, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-dx.yml?query=branch%3Atesting) |
-| gx | [![gx, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml?query=branch%3Amain) | [![gx, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries-gx.yml?query=branch%3Atesting) |
+| binaries (base, dx, gx) | [![binaries, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Amain) | [![binaries, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Atesting) |
 | checks | not run on main | [![checks, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml?query=branch%3Atesting) |
 
-The badges show the build and signing of each image (`octarine-bins`, `-dx`, `-gx`). Each image moves its own `latest` after its own build, so they do not wait for each other. `dx` and `gx` carry package lists but no binaries yet.
+The binaries badge covers the build, signing and promotion of all three images (`octarine-bins`, `-dx`, `-gx`); each image moves its own `latest`. `dx` and `gx` carry package lists but no binaries yet.
 
 ## Why
 

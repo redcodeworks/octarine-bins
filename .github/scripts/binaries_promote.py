@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Promote the binaries: retag the TESTED, signed <image>:testing to :latest (no rebuild, same digest, same signature). Usage: binaries_promote.py <registry-image> <dir>
 
-Runs on main only (binaries.yml, binaries-dx.yml, binaries-gx.yml); nothing else moves `latest`. dir: src, dx or gx; writes changed=true|false and digest=<digest of latest>
+Runs on main only (binaries.yml, one matrix entry per image); nothing else moves `latest`. dir: src, dx or gx; writes changed=true|false and digest=<digest of latest>
 to GITHUB_OUTPUT. Fails, and changes nothing, unless `testing` exists, verifies with cosign.pub and was built from exactly the binaries being promoted: the image's own
 content (ci.inputs) at the commit named by its label org.opencontainers.image.revision must equal that of this checkout (HEAD, the merge commit of the promotion PR).
 The same definition of content as binaries_skip.py: a push that did not change it leaves `testing` at an older revision, and tooling or docs never make the image stale. A running or failed build on testing, or a testing that moved on, fails the promotion: re-run it when the tip's build is green.

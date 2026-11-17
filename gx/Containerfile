@@ -1,4 +1,4 @@
-# The gx binaries image, ghcr.io/redcodeworks/octarine-bins-gx (.github/workflows/binaries-gx.yml): binaries only the gx image of octarine-os needs.
+# The gx binaries image, ghcr.io/redcodeworks/octarine-bins-gx (.github/workflows/binaries.yml): binaries only the gx image of octarine-os needs.
 # No binary component yet: the assemble stage writes an EMPTY /COMPONENTS (zero components = no binary to install) and an empty BUILDINFO. The image also carries the gaming package list(s) and their installers under /packages: required-*.txt and optional-*.txt (the gaming package lists), install.sh.
 # Build: `just build octarine-bins-gx:dev dev unknown gx` (context: this directory; --build-context lib=src/lib is the shared helpers, installer=installer the shared package installers). To add a component, see gx/README.md.
 ARG BUILDER
