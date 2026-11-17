@@ -11,6 +11,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ci  # noqa: E402
+
 NAME = re.compile(r"(required|optional)-(fedora|negativo17|copr)\.txt")
 COPR = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_.+]+(-[A-Za-z0-9_.+]+)*-[0-9][A-Za-z0-9_.+~^]*-[0-9][A-Za-z0-9_.+~^]*")
 PLAIN = re.compile(r"@[A-Za-z0-9._+-]+|[A-Za-z0-9._+-]+(\|[A-Za-z0-9._+-]+)*")
@@ -60,15 +63,14 @@ def lint(lists):
     return problems
 
 
-def main(argv):
-    if not argv:
-        print("usage: lint_packages.py <list>...", file=sys.stderr)
-        return 2
-    problems = lint(argv)
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("lists", nargs="+", help="the package lists of one image")
+    problems = lint(ap.parse_args(argv).lists)
     for p in problems:
-        print(f"lint-packages: {p}", file=sys.stderr)
+        ci.log.error(f"lint-packages: {p}")
     return 1 if problems else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

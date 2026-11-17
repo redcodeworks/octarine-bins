@@ -13,21 +13,22 @@ import ci  # noqa: E402
 import registry  # noqa: E402
 
 
-def main(argv):
-    if len(argv) != 3:
-        print("usage: push_image.py <local-image> <registry-image> <tag>", file=sys.stderr)
-        return 2
-    local, image, tag = argv
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("local_image", help="the locally built image")
+    ap.add_argument("registry_image", help="registry image without a tag (registry/owner/name)")
+    ap.add_argument("tag", help="the one tag to push")
+    args = ap.parse_args(argv)
     try:
-        digest = registry.push(local, f"{image}:{tag}")
-        registry.settled(image, tag, digest)
+        digest = registry.push(args.local_image, f"{args.registry_image}:{args.tag}")
+        registry.settled(args.registry_image, args.tag, digest)
     except (ci.NetworkError, registry.ReadError) as e:
-        ci.error(str(e))
+        ci.log.error(str(e))
         return 1
-    print(f"pushed {tag} -> {digest}")
+    ci.log.info(f"pushed {args.tag} -> {digest}")
     ci.emit("digests", digest)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

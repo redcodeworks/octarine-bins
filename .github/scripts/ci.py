@@ -1,23 +1,42 @@
-"""The ONE shared-helpers file of the CI scripts: log lines, step outputs, the @retry decorator (THE retry for network calls), `gh api` reads and the list of an image's build inputs.
+"""The ONE shared-helpers file of the CI scripts: logging (`log`, GitHub annotations), the @retry decorator (THE retry for network calls), the GitHub API through githubkit
+(`gh_api`, `gh_request`), version ordering (packaging), step outputs and the list of an image's build inputs.
 
-Standard library only. Scripts start with `python3 -I`, which keeps the script's own directory off sys.path, so each script adds it back with two lines
-(see any script) before it imports this module.
+The scripts run through uv with the locked dependencies (`uv run --frozen python -I .github/scripts/<name>.py`). `-I` keeps the script's own directory off sys.path, so each
+script adds it back with two lines (see any script) before it imports this module.
 """
+import argparse
 import functools
-import json
+import logging
 import os
 import re
 import subprocess
 import sys
 import time
 
+from githubkit import GitHub
+from githubkit.exception import RequestError, RequestFailed
+from packaging.version import InvalidVersion, Version
+from pydantic import BaseModel
 
-def error(msg):
-    print(f"::error::{msg}", file=sys.stderr)
+
+class Annotations(logging.Handler):
+    """Writes log records the way the Actions runner reads them: `::error::` and `::warning::` lines (stderr), plain lines for info (stdout)."""
+
+    def emit(self, record):
+        prefix = {logging.ERROR: "::error::", logging.WARNING: "::warning::"}.get(record.levelno, "")
+        stream = sys.stderr if record.levelno >= logging.WARNING else sys.stdout
+        print(f"{prefix}{record.getMessage()}", file=stream, flush=True)
 
 
-def warning(msg):
-    print(f"::warning::{msg}", file=sys.stderr)
+log = logging.getLogger("ci")  # every script logs through this one: log.info, log.warning, log.error
+log.setLevel(logging.INFO)
+log.addHandler(Annotations())
+log.propagate = False
+
+
+def arg_parser(doc):
+    """An ArgumentParser whose --help description is the first sentence of the script's docstring."""
+    return argparse.ArgumentParser(description=doc.strip().splitlines()[0].split(" Usage:")[0], formatter_class=argparse.RawDescriptionHelpFormatter)
 
 
 def append_to(env_var, line):
@@ -64,15 +83,19 @@ class NetworkError(Exception):
     """A network command (skopeo copy, podman push, cosign sign) failed; the usual transient error to retry."""
 
 
+class ServerError(Exception):
+    """A web server answered 5xx; transient."""
+
+
 def retry(*, on, attempts=None, delay=None, backoff=True):
-    """Decorator for a NETWORK call that may fail for a moment (a registry, cosign's lookups, the GitHub API); put it on nothing else.
+    """Decorator for a NETWORK call that may fail for a moment (a registry, cosign's lookups, the GitHub API, a download); put it on nothing else.
 
     What it retries: only the exception types in `on` (the transient failures). Any other exception, in particular a definitive answer such as `Absent` (the tag is not
-    there) or `NotVerified` (the signature is not valid), propagates at once and is never retried: a permanent failure must not be dressed up as a flaky network.
+    there), `NotVerified` (the signature is not valid) or a 404, propagates at once and is never retried: a permanent failure must not be dressed up as a flaky network.
     How long it waits: `attempts` tries (default RETRY_TRIES, 3) with a pause of `delay` seconds (default RETRY_DELAY, 5) times the try number before the next try
     (`backoff=False`: the same pause every time). Both are read when the function is called, so the environment can shorten them for tests.
     What it re-raises: after the last try, the last error itself (same type, so callers catch it as before) with ` (failed N attempts)` added to its message.
-    Not for calls that must not run twice. Every failed try prints a ::warning:: line.
+    Not for calls that must not run twice. Every failed try logs a warning.
     """
     def decorate(fn):
         @functools.wraps(fn)
@@ -87,45 +110,67 @@ def retry(*, on, attempts=None, delay=None, backoff=True):
                         e.args = (f"{e} (failed {tries} attempts)",)
                         raise
                     wait = pause * i if backoff else pause
-                    warning(f"{fn.__name__}: try {i}/{tries} failed ({text(str(e), 200)}); retrying in {wait} s")
+                    log.warning(f"{fn.__name__}: try {i}/{tries} failed ({text(str(e), 200)}); retrying in {wait} s")
                     time.sleep(wait)
         return wrapper
     return decorate
 
 
-class GhError(Exception):
-    pass
+class GhTransportError(Exception):
+    """The GitHub API could not be reached or the connection broke (githubkit wraps httpx's transport errors in RequestError)."""
 
 
-class GhNotFound(Exception):
-    pass
+class Release(BaseModel):
+    """What the scripts read of a GitHub release (untrusted JSON, so validated)."""
+    tag_name: str
 
 
-@retry(on=(GhError,))
-def gh_get(path, paginate):
-    cmd = ["gh", "api"] + (["--paginate", "--slurp"] if paginate else []) + [path]
-    proc = run(cmd, capture=True)
-    err = stderr_of(proc)
-    if proc.returncode != 0:
-        raise (GhNotFound if "404" in err or "Not Found" in err else GhError)(f"gh api {path}: {text(err, 200)}")
+@retry(on=(GhTransportError,))
+def gh_request(method, path, **kwargs):
+    """One GitHub REST call through githubkit (token GITHUB_TOKEN, server GITHUB_API_URL, so the tests can use a local fake); returns the githubkit Response.
+
+    githubkit's own auto_retry (the default) already retries a rate limit once and a 5xx three times; it does not retry a transport error, so @retry does that here.
+    An error status stays a githubkit `RequestFailed` and is NOT retried (a 404 is a definitive answer).
+    """
+    client = GitHub(os.environ.get("GITHUB_TOKEN") or None, base_url=os.environ.get("GITHUB_API_URL", "https://api.github.com"), timeout=30)
     try:
-        data = json.loads(proc.stdout)
-    except ValueError:
-        raise GhError(f"gh api {path}: the answer is not JSON")
-    return [item for page in data for item in page] if paginate else data
+        return client.request(method, path, **kwargs)
+    except RequestFailed:
+        raise
+    except RequestError as e:
+        raise GhTransportError(f"{method} {path}: {e.exc!r}") from e
 
 
-def gh_api(path, paginate=False):
-    """A `gh api` GET read, parsed; None when it cannot be read (a 404 at once, anything else after the retries). Paginated lists come back joined."""
+def gh_api(path, model=None, **params):
+    """A GitHub GET read, parsed (and validated as `model`, a pydantic model, when given); None when it cannot be read: a 404 at once, anything else after the retries."""
     try:
-        return gh_get(path, paginate)
-    except (GhNotFound, GhError):
+        data = gh_request("GET", path, params=params or None).json()
+        return model.model_validate(data) if model else data
+    except (RequestFailed, RequestError, GhTransportError, ValueError) as e:  # ValueError: not JSON, or pydantic's ValidationError
+        if not isinstance(e, RequestFailed):
+            log.warning(f"gh api {path}: {text(str(e), 150)}")
         return None
 
 
-def vkey(version):
-    """Natural version order (what `sort -V` gives for plain x.y.z tags): digit runs compare as numbers."""
-    return [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in re.findall(r"\d+|\D+", version)]
+def gh_pages(path, **params):
+    """A paginated GET list (100 per page) joined, or None when a page cannot be read."""
+    items, page = [], 1
+    while True:
+        chunk = gh_api(path, per_page=100, page=page, **params)
+        if chunk is None:
+            return None
+        items += chunk
+        if len(chunk) < 100:
+            return items
+        page += 1
+
+
+def version(tag):
+    """A tag as a comparable version (a leading v is fine); ValueError for a tag that is not a version."""
+    try:
+        return Version(tag)
+    except InvalidVersion as e:
+        raise ValueError(f"'{tag}' is not a version") from e
 
 
 def inputs(directory, trees_only=False):

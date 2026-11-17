@@ -13,13 +13,15 @@ import ci  # noqa: E402
 import registry  # noqa: E402
 
 
-def main(argv):
-    if len(argv) != 3:
-        print("usage: sign_image.py <image> <version> <digest>", file=sys.stderr)
-        return 2
-    image, version, digest = argv
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("image", help="registry image without a tag (registry/owner/name)")
+    ap.add_argument("version", help="the version tag, for the summary")
+    ap.add_argument("digest", help="the pushed manifest digest to sign")
+    args = ap.parse_args(argv)
+    image, digest = args.image, args.digest
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-        ci.error("No pushed digest to sign")
+        ci.log.error("No pushed digest to sign")
         return 1
     try:
         registry.sign(f"{image}@{digest}")
@@ -28,12 +30,12 @@ def main(argv):
         registry.settled(image, "testing", digest)
         registry.cosign_check(["--key", "cosign.pub", f"{image}:testing"])
     except (ci.NetworkError, registry.ReadError, registry.NotVerified) as e:
-        ci.error(str(e))
+        ci.log.error(str(e))
         return 1
-    print(f"signed: {image}:{version} and :testing = {digest}")
-    ci.append_to("GITHUB_STEP_SUMMARY", f"Binaries image {image.rsplit('/', 1)[-1]} {version}, signed and published as `testing` (digest `{digest}`)")
+    ci.log.info(f"signed: {image}:{args.version} and :testing = {digest}")
+    ci.append_to("GITHUB_STEP_SUMMARY", f"Binaries image {image.rsplit('/', 1)[-1]} {args.version}, signed and published as `testing` (digest `{digest}`)")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

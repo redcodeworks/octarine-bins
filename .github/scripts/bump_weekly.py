@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The weekly pin bump: ONE INDEPENDENT pull request into testing PER PIN that moved. Usage: bump_weekly.py   (env GH_TOKEN, GITHUB_REPOSITORY; DRY_RUN=1; BUMP_BASE, BUMP_PINS, REPO_ROOT for the tests)
+"""The weekly pin bump: ONE INDEPENDENT pull request into testing PER PIN that moved. Usage: bump_weekly.py   (env GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL; DRY_RUN=1; BUMP_BASE, BUMP_PINS, REPO_ROOT for the tests)
 
 Every pin starts from current testing on its own branch bump/<pin>-YYYYMMDD with ONE commit (the pin change, made by bump_run.py), so the PRs are not a chain and touch different
 pin lines, and any subset can be merged in any order. Rules:
@@ -11,12 +11,13 @@ pin lines, and any subset can be merged in any order. Rules:
 Every new PR gets the required `test` and `secrets` check runs from bump_checks.py (keyed by its commit sha, so parallel PRs do not collide). DRY_RUN=1 does every decision locally and
 prints what it would open, keep or close, pushing and opening nothing. A real run needs HEAD to be origin/testing (the workflow checks testing out).
 """
-import json
 import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from githubkit.exception import RequestError
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -45,7 +46,7 @@ def git(*args):
 
 
 def summary(line):
-    print(line)
+    ci.log.info(line)
     ci.append_to("GITHUB_STEP_SUMMARY", line)
 
 
@@ -61,31 +62,43 @@ def to_of(rev):
 
 def open_prs(pin, base):
     """(number, branch) of every open PR into the base whose branch is bump/<pin>-..."""
-    proc = subprocess.run(["gh", "pr", "list", "--base", base, "--state", "open", "--json", "number,headRefName"], capture_output=True, text=True)
+    repo = os.environ["GITHUB_REPOSITORY"]
+    prs = ci.gh_pages(f"/repos/{repo}/pulls", base=base, state="open") or []
+    return [(pr["number"], pr["head"]["ref"]) for pr in prs if pr["head"]["ref"].startswith(f"bump/{pin}-")]
+
+
+def close_pr(number, branch, comment):
+    """Comment on a pull request, close it and delete its branch."""
+    repo = os.environ["GITHUB_REPOSITORY"]
     try:
-        prs = json.loads(proc.stdout)
-    except ValueError:
-        return []
-    return [(pr["number"], pr["headRefName"]) for pr in prs if pr["headRefName"].startswith(f"bump/{pin}-")]
+        ci.gh_request("POST", f"/repos/{repo}/issues/{number}/comments", json={"body": comment})
+        ci.gh_request("PATCH", f"/repos/{repo}/pulls/{number}", json={"state": "closed"})
+        ci.gh_request("DELETE", f"/repos/{repo}/git/refs/heads/{branch}")
+    except (RequestError, ci.GhTransportError) as e:
+        ci.log.warning(f"could not close #{number}: {ci.text(str(e), 150)}")
 
 
-def close_pr(number, comment):
-    if subprocess.run(["gh", "pr", "close", str(number), "--delete-branch", "--comment", comment]).returncode != 0:
-        ci.warning(f"could not close #{number}")
+def open_pr(branch, title, body, base):
+    """Open the pull request; returns its URL or None."""
+    repo = os.environ["GITHUB_REPOSITORY"]
+    try:
+        return ci.gh_request("POST", f"/repos/{repo}/pulls", json={"title": title, "head": branch, "base": base, "body": body}).json()["html_url"]
+    except (RequestError, ci.GhTransportError):
+        return None
 
 
-def main():
-    sys.stdout.reconfigure(line_buffering=True)  # the output of the child scripts and ours stays in order
+def main(argv=None):
+    ci.arg_parser(__doc__).parse_args(argv)
     os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
     base = os.environ.get("BUMP_BASE", "testing")
-    pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder").split()
+    pins = os.environ.get("BUMP_PINS", "scx extest ghostty builder python-deps").split()
     dry = bool(os.environ.get("DRY_RUN"))
     if git("fetch", "-q", "origin", base).returncode != 0:
-        ci.error(f"cannot fetch {base}")
+        ci.log.error(f"cannot fetch {base}")
         return 1
     start = git("rev-parse", "HEAD").stdout.strip()
     if not dry and start != git("rev-parse", f"origin/{base}").stdout.strip():
-        ci.error(f"a real run must start from origin/{base} (this checkout is not it); use dry_run to try another ref")
+        ci.log.error(f"a real run must start from origin/{base} (this checkout is not it); use dry_run to try another ref")
         return 1
     day = datetime.now(timezone.utc).strftime("%Y%m%d")
     summary("## Pin bumps")
@@ -107,16 +120,16 @@ def main():
             continue
         pending = open_prs(p, base)
         if not git("rev-list", f"{start}..HEAD").stdout.strip():
-            for number, _ in pending:
+            for number, pr_branch in pending:
                 if dry:
                     summary(f"Dry run: would close #{number} ({p}: testing already has the upstream value)")
                 else:
-                    close_pr(number, f"Closing: `{p}` already equals upstream on `{base}`, so this bump is not needed any more.")
+                    close_pr(number, pr_branch, f"Closing: `{p}` already equals upstream on `{base}`, so this bump is not needed any more.")
             continue
         commit = git("rev-parse", "HEAD").stdout.strip()
         row, to = row_of(commit), to_of(commit)
         if " | " not in row:
-            ci.error(f"{p}: the bump commit has no table row")
+            ci.log.error(f"{p}: the bump commit has no table row")
             failed = True
             continue
         keep = None
@@ -136,18 +149,17 @@ def main():
             summary(body)
             continue
         if git("push", "-q", "origin", f"refs/heads/{branch}:refs/heads/{branch}").returncode != 0:
-            ci.error(f"cannot push {branch}")
+            ci.log.error(f"cannot push {branch}")
             failed = True
             continue
-        created = subprocess.run(["gh", "pr", "create", "--base", base, "--head", branch, "--title", title, "--body", body], capture_output=True, text=True)
-        if created.returncode != 0:
-            ci.error(f"Could not open the pull request for {p}. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?")
+        url = open_pr(branch, title, body, base)
+        if not url:
+            ci.log.error(f"Could not open the pull request for {p}. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?")
             failed = True
             continue
-        url = created.stdout.strip()
         summary(f"`{p}`: opened {url}")
-        for number, _ in pending:
-            close_pr(number, f"Superseded by {url}: upstream moved again, so `{p}` has a newer bump pull request.")
+        for number, pr_branch in pending:
+            close_pr(number, pr_branch, f"Superseded by {url}: upstream moved again, so `{p}` has a newer bump pull request.")
         subprocess.run([sys.executable, "-I", str(HERE / "bump_checks.py"), branch, commit])
     git("checkout", "-q", "--detach", start)
     return 1 if failed else 0

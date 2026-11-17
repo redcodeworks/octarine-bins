@@ -19,6 +19,9 @@ runs:
         username: ${{ github.actor }}
         password: ${{ github.token }}
 
+    - name: Set up Python and uv
+      uses: ./.github/actions/setup-ci-python
+
     - name: Set up cosign
       uses: ./.github/actions/setup-tool
       with:
@@ -29,4 +32,4 @@ runs:
       env:
         NAME: ${{ inputs.name }}
         DIR: ${{ inputs.dir }}
-      run: python3 -I .github/scripts/binaries_promote.py "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"
+      run: uv run --frozen --no-dev python -I .github/scripts/binaries_promote.py "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"

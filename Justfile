@@ -28,9 +28,9 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
 
 # Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component; every image carries /packages
 layout image="octarine-bins:dev" dir="src":
-    python3 -I .github/scripts/binaries_layout.py "{{ image }}" "{{ dir }}"
+    uv run --frozen --no-dev python -I .github/scripts/binaries_layout.py "{{ image }}" "{{ dir }}"
 
-# Run the tests: pytest (standard library plus pytest, through uv) and the installer test (bash, it tests installer/install.sh)
+# Run the tests: pytest through uv (the locked dependencies, Python from .python-version) and the installer test (bash, it tests installer/install.sh)
 test:
-    uv run --no-project --python '>=3.10' --with pytest==9.2.0 pytest
+    uv run --frozen pytest
     bash tests/installer.sh

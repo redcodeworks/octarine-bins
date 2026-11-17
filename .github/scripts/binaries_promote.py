@@ -67,7 +67,7 @@ def promote(image, directory):
     except registry.ReadError as e:
         raise Fail(f"{image}:latest could not be read ({e})")
     if current == tested:
-        print(f"latest already is the tested image {tested}: nothing to promote")
+        ci.log.info(f"latest already is the tested image {tested}: nothing to promote")
         ci.emit("changed", "false")
         ci.emit("digest", tested)
         return
@@ -82,22 +82,23 @@ def promote(image, directory):
         raise Fail(str(e))
     except registry.NotVerified:
         raise Fail(f"{image}:latest does not verify after the retag")
-    print(f"promoted {image}:latest {current or '<none>'} -> {tested}")
+    ci.log.info(f"promoted {image}:latest {current or '<none>'} -> {tested}")
     ci.emit("changed", "true")
     ci.emit("digest", tested)
 
 
-def main(argv):
-    if len(argv) != 2:
-        print("usage: binaries_promote.py <registry-image> <dir>", file=sys.stderr)
-        return 2
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("image", help="registry image without a tag (registry/owner/name)")
+    ap.add_argument("dir", choices=["src", "dx", "gx"], help="the image directory")
+    args = ap.parse_args(argv)
     try:
-        promote(*argv)
+        promote(args.image, args.dir)
     except Fail as e:
-        ci.error(str(e))
+        ci.log.error(str(e))
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

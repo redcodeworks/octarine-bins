@@ -22,79 +22,88 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci  # noqa: E402
 import pins  # noqa: E402
+from pins import Decision  # noqa: E402
 
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
+def unreachable(text):
+    return Decision("unreachable", text=text)
+
+
 def check(root, directory):
-    """The decision as a tuple (verb, *words)."""
+    """The decision for the component in `directory` (for example src/scx)."""
     try:
         pin = pins.load_upstream(Path(root) / directory / "upstream.env")
     except ValueError as e:
-        return ("unreachable", f"invalid {directory}/upstream.env ({e})")
-    repo, fork, tag, pinned = pin["UPSTREAM_WATCH"], pin["UPSTREAM_REPO"], pin["UPSTREAM_TAG"], pin["UPSTREAM_COMMIT"]
+        return unreachable(f"invalid {directory}/upstream.env ({e})")
+    repo, fork, tag, pinned = pin.watch, pin.repo, pin.tag, pin.commit
 
-    release = ci.gh_api(f"repos/{repo}/releases/latest")
-    latest = (release or {}).get("tag_name") or ""
+    release = ci.gh_api(f"/repos/{repo}/releases/latest", ci.Release)
+    latest = release.tag_name if release else ""
     if not latest and (not tag or repo != fork):  # a commit-pinned project may have tags but no release object
-        tags = ci.gh_api(f"repos/{repo}/tags")
+        tags = ci.gh_api(f"/repos/{repo}/tags")
         if tags is None:
-            return ("unreachable", f"cannot read releases or tags of {repo}")
+            return unreachable(f"cannot read releases or tags of {repo}")
         latest = tags[0]["name"] if tags else ""
     if not latest:
         if tag and repo == fork:
-            return ("unreachable", f"cannot read the latest release of {repo}")
-        return ("report", f"{repo} has no release or tag; pinned at {pinned[:7]}")
+            return unreachable(f"cannot read the latest release of {repo}")
+        return Decision("report", text=f"{repo} has no release or tag; pinned at {pinned[:7]}")
 
     def commit_of(ref):
-        c = (ci.gh_api(f"repos/{repo}/commits/{ref}") or {}).get("sha", "")
+        c = (ci.gh_api(f"/repos/{repo}/commits/{ref}") or {}).get("sha", "")
         return c if SHA.fullmatch(c) else None
 
     if tag and repo == fork:
         if latest == tag:
-            return ("current", f"{tag} is the latest release")
-        if max(tag, latest, key=ci.vkey) != latest:
-            return ("current", f"pinned {tag} is ahead of the latest release {latest}")
+            return Decision("current", text=f"{tag} is the latest release")
+        try:
+            newer = ci.version(latest) > ci.version(tag)
+        except ValueError as e:
+            return unreachable(str(e))
+        if not newer:
+            return Decision("current", text=f"pinned {tag} is ahead of the latest release {latest}")
         commit = commit_of(latest)
         if not commit:
-            return ("unreachable", f"cannot resolve {repo} {latest} to a commit")
-        return ("bump", latest, commit)
+            return unreachable(f"cannot resolve {repo} {latest} to a commit")
+        return Decision("bump", tag=latest, commit=commit)
 
     if repo != fork and latest == tag:
-        return ("current", f"{tag} is the latest release")
+        return Decision("current", text=f"{tag} is the latest release")
     commit = commit_of(latest)
     if not commit:
-        return ("unreachable", f"cannot resolve {repo} {latest} to a commit")
-    compare = ci.gh_api(f"repos/{repo}/compare/{pinned}...{commit}")
+        return unreachable(f"cannot resolve {repo} {latest} to a commit")
+    compare = ci.gh_api(f"/repos/{repo}/compare/{pinned}...{commit}")
     if compare is None:
-        return ("unreachable", f"cannot compare {repo} {pinned[:7]} with {latest}")
+        return unreachable(f"cannot compare {repo} {pinned[:7]} with {latest}")
     status = compare.get("status", "")
     if status in ("ahead", "diverged"):
         if repo == fork:
-            return ("bump", latest, commit)
+            return Decision("bump", tag=latest, commit=commit)
         # a fork: only bump when it already contains the commit (compare the new commit with the fork's default branch; asking the commits API would also find commits
         # that only exist elsewhere in the fork network)
-        info = ci.gh_api(f"repos/{fork}")
+        info = ci.gh_api(f"/repos/{fork}")
         if info is None:
-            return ("unreachable", f"cannot read {fork}")
+            return unreachable(f"cannot read {fork}")
         branch = info.get("default_branch", "")
-        fstatus = (ci.gh_api(f"repos/{fork}/compare/{commit}...{branch}") or {}).get("status", "missing")
+        fstatus = (ci.gh_api(f"/repos/{fork}/compare/{commit}...{branch}") or {}).get("status", "missing")
         if fstatus in ("ahead", "identical"):
-            return ("bump", latest, commit)
-        return ("forkbehind", latest, commit, f"the fork {fork} is behind {repo}: {latest} is not in {fork}/{branch}")
+            return Decision("bump", tag=latest, commit=commit)
+        return Decision("forkbehind", tag=latest, commit=commit, text=f"the fork {fork} is behind {repo}: {latest} is not in {fork}/{branch}")
     if status == "identical":
-        return ("current", f"the pinned commit is {latest}")
-    return ("report", f"latest release {latest} is {status} of the pinned commit {pinned[:7]}; nothing to bump")
+        return Decision("current", text=f"the pinned commit is {latest}")
+    return Decision("report", text=f"latest release {latest} is {status} of the pinned commit {pinned[:7]}; nothing to bump")
 
 
-def main(argv):
-    if len(argv) != 1:
-        print("usage: upstream_check.py <component directory>", file=sys.stderr)
-        return 2
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("directory", help="component directory, for example src/scx")
+    args = ap.parse_args(argv)
     root = os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]
-    print(" ".join(check(root, argv[0])))
+    ci.log.info(check(root, args.directory).line())
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

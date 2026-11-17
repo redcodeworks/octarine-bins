@@ -82,25 +82,26 @@ def export_listing(image):
         subprocess.run([*podman, "rm", cid], capture_output=True)
 
 
-def main(argv):
-    if len(argv) != 2:
-        print("usage: binaries_layout.py <local image> <dir>", file=sys.stderr)
-        return 2
-    image, directory = argv
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("image", help="the locally built image")
+    ap.add_argument("dir", choices=["src", "dx", "gx"], help="the image directory (its components and package lists are the expectation)")
+    args = ap.parse_args(argv)
+    directory = args.dir
     components = table_names(f"{directory}/components.tsv")
     packages = sorted(p.name for p in Path(directory, "packages").iterdir()) + ["install.sh"]
     try:
-        problems = check(export_listing(image), table_names("src/scx/schedulers.tsv"), components, allow_empty=directory != "src", packages=packages)
+        problems = check(export_listing(args.image), table_names("src/scx/schedulers.tsv"), components, allow_empty=directory != "src", packages=packages)
     except (ValueError, subprocess.CalledProcessError) as e:
-        ci.error(str(e))
+        ci.log.error(str(e))
         return 1
     for p in problems:
-        ci.error(p)
+        ci.log.error(p)
     if problems:
         return 1
-    print(f"binaries image layout ok: {' '.join(components) or '<no component>'}")
+    ci.log.info(f"binaries image layout ok: {' '.join(components) or '<no component>'}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

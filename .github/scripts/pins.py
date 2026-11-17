@@ -1,4 +1,4 @@
-"""Read and write the pin files: src/<component>/upstream.env, src/ghostty/zig.env and src/builder.env. Standard library only.
+"""Read and write the pin files: src/<component>/upstream.env, src/ghostty/zig.env and src/builder.env. Pydantic validates what is read.
 
 upstream.env is the Python twin of src/lib/upstream-env.sh (the build scripts inside the container read it with bash; the CI scripts here read it with this module).
 Format: KEY=VALUE lines, `#` comments and blank lines allowed, nothing else (the file is parsed, never sourced).
@@ -10,16 +10,46 @@ Format: KEY=VALUE lines, `#` comments and blank lines allowed, nothing else (the
 import re
 from pathlib import Path
 
+from pydantic import Field, ValidationError
+from pydantic.dataclasses import dataclass
+
 REPO = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
 KEYS = ("UPSTREAM_REPO", "UPSTREAM_WATCH", "UPSTREAM_TAG", "UPSTREAM_COMMIT")
 
 
+@dataclass(frozen=True)
+class Pin:
+    """The pin of one component (upstream.env), validated when it is read."""
+    repo: str = Field(pattern=r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+    watch: str = Field(pattern=r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+    tag: str = Field(pattern=r"^[A-Za-z0-9._+-]*$")
+    commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
+@dataclass(frozen=True)
+class Decision:
+    """The answer of a weekly check (upstream_check, ghostty_check): current, bump, wait, report, forkbehind or unreachable. A bump carries the new tag and commit, and for
+    Ghostty the Zig release that goes with it."""
+    verb: str
+    text: str = ""
+    tag: str = ""
+    commit: str = Field("", pattern=r"^([0-9a-f]{40})?$")
+    zig: str = ""
+    zig_url: str = ""
+    zig_sha256: str = Field("", pattern=r"^([0-9a-f]{64})?$")
+    zig_size: str = ""
+
+    def line(self):
+        """The one-line form that the scripts print and the job summary shows."""
+        return " ".join(w for w in (self.verb, self.tag, self.commit, self.zig, self.zig_url, self.zig_sha256, self.zig_size, self.text) if w)
+
+
 def load_upstream(path):
-    """The pin of one component as a dict with the four keys; ValueError (with the reason) when the file is invalid."""
+    """The pin of one component as a Pin; ValueError (with the reason) when the file is invalid."""
     path = Path(path)
     if not path.is_file():
         raise ValueError(f"not found: {path}")
-    pin = dict.fromkeys(KEYS, "")
+    values = dict.fromkeys(KEYS, "")
     seen = set()
     for line in path.read_text().splitlines():
         line = line.split("#", 1)[0].strip()
@@ -34,18 +64,11 @@ def load_upstream(path):
         if key in seen:
             raise ValueError(f"{key} appears twice")
         seen.add(key)
-        pin[key] = value[1:] if value[:1] in "\"'" else value
-        pin[key] = pin[key][:-1] if pin[key][-1:] in "\"'" else pin[key]
-    if not REPO.fullmatch(pin["UPSTREAM_REPO"]):
-        raise ValueError(f"UPSTREAM_REPO must be owner/name (got '{pin['UPSTREAM_REPO']}')")
-    pin["UPSTREAM_WATCH"] = pin["UPSTREAM_WATCH"] or pin["UPSTREAM_REPO"]
-    if not REPO.fullmatch(pin["UPSTREAM_WATCH"]):
-        raise ValueError(f"UPSTREAM_WATCH must be owner/name (got '{pin['UPSTREAM_WATCH']}')")
-    if pin["UPSTREAM_TAG"] and not re.fullmatch(r"[A-Za-z0-9._+-]+", pin["UPSTREAM_TAG"]):
-        raise ValueError(f"bad UPSTREAM_TAG '{pin['UPSTREAM_TAG']}'")
-    if not re.fullmatch(r"[0-9a-f]{40}", pin["UPSTREAM_COMMIT"]):
-        raise ValueError(f"UPSTREAM_COMMIT must be 40 lowercase hex characters (got '{pin['UPSTREAM_COMMIT']}')")
-    return pin
+        values[key] = value.strip("\"'")
+    try:
+        return Pin(repo=values["UPSTREAM_REPO"], watch=values["UPSTREAM_WATCH"] or values["UPSTREAM_REPO"], tag=values["UPSTREAM_TAG"], commit=values["UPSTREAM_COMMIT"])
+    except ValidationError as e:
+        raise ValueError(f"{path}: {e.errors()[0]['loc'][0]} is invalid ({e.errors()[0]['msg']})") from e
 
 
 def set_lines(path, values):
@@ -65,7 +88,7 @@ def set_upstream(path, tag, commit):
         raise ValueError("bad tag or commit")
     set_lines(path, {"UPSTREAM_TAG": tag, "UPSTREAM_COMMIT": commit})
     pin = load_upstream(path)
-    if pin["UPSTREAM_TAG"] != tag or pin["UPSTREAM_COMMIT"] != commit:
+    if pin.tag != tag or pin.commit != commit:
         raise ValueError(f"{path} does not hold the new pin after writing it")
 
 

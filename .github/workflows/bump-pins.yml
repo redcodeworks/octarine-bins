@@ -42,8 +42,7 @@ jobs:
       actions: write
       checks: write
     env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       # testing, so the pins compared and the scripts run are testing's; a manual dry run from another branch checks that branch out to try its scripts
       - name: Check out testing
@@ -52,10 +51,13 @@ jobs:
           ref: ${{ inputs.dry_run && github.ref_name || 'testing' }}
           fetch-depth: 0
 
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
+
       - name: Check every pin and open the one pull request
         env:
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python3 -I .github/scripts/bump_weekly.py
+          uv run --frozen --no-dev python -I .github/scripts/bump_weekly.py

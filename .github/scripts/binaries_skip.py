@@ -55,18 +55,19 @@ def decide(image, directory):
     return True, f"testing is the signed build of {rev}, same inputs"
 
 
-def main(argv):
-    if len(argv) != 2:
-        print("usage: binaries_skip.py <registry-image> <dir>", file=sys.stderr)
-        return 2
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("image", help="registry image without a tag (registry/owner/name)")
+    ap.add_argument("dir", choices=["src", "dx", "gx"], help="the image directory")
+    args = ap.parse_args(argv)
     try:
-        skip, reason = decide(*argv)
+        skip, reason = decide(args.image, args.dir)
     except registry.ReadError as e:
-        ci.error(f"{e}: not deciding on a guess")
+        ci.log.error(f"{e}: not deciding on a guess")
         return 1
     ci.emit("skip", str(skip).lower(), f" ({reason})")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

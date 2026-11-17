@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The weekly bump check of ONE pin. Usage: bump_run.py scx|extest|ghostty|builder   (from the repository root, on a clean checkout; GH_TOKEN, a git identity, skopeo for the builder)
+"""The weekly bump check of ONE pin. Usage: bump_run.py scx|extest|ghostty|builder|python-deps   (from the repository root, on a clean checkout; GH_TOKEN, a git identity, skopeo for the builder)
 
 Decides (upstream_check.check / ghostty_check.check, or the registry for the builder) and, when something is newer, writes the pin into the working tree and makes ONE commit for it;
 the commit message ends with the row of the pull request's table: pin | from | to | what changed upstream | days the new value has existed. bump_weekly.py runs every pin on its
 own checkout of testing, one commit and one pull request per pin. Exit 1 when the pin's check FAILED (a registry that cannot be reached, a bad pin): the working tree is restored
 then. Prints one line per pin (also into the job summary).
 
-Kinds: the source pins (scx, extest; ghostty, which also writes the Zig pin: Zig never moves alone) and the Fedora builder digest of src/builder.env (the same major, the newest digest
+Kinds: `python-deps` (`uv lock --upgrade`: newer locked versions of the CI scripts' own dependencies, uv.lock only), the source pins (scx, extest; ghostty, which also writes the Zig pin: Zig never moves alone) and the Fedora builder digest of src/builder.env (the same major, the newest digest
 of the tag once it has been the tag's value for MIN_AGE_DAYS, default 7: the creation date of the image is the stand-in for "has not been replaced since", a registry has no tag history).
 """
 import hashlib
@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,7 +34,7 @@ class Fail(Exception):
 
 
 def say(line):
-    print(line)
+    ci.log.info(line)
     ci.append_to("GITHUB_STEP_SUMMARY", f"- {line}")
 
 
@@ -47,7 +48,7 @@ def days_since(iso):
 
 
 def commit_age(repo, sha):
-    info = ci.gh_api(f"repos/{repo}/commits/{sha}") or {}
+    info = ci.gh_api(f"/repos/{repo}/commits/{sha}") or {}
     days = days_since(((info.get("commit") or {}).get("committer") or {}).get("date", ""))
     return "unknown" if days is None else days
 
@@ -76,24 +77,23 @@ def bump_source(pin, root):
         cur = pins.load_upstream(Path(root) / path)
     except ValueError as e:
         raise Fail(f"invalid {path} ({e})")
-    current = cur["UPSTREAM_TAG"] or cur["UPSTREAM_COMMIT"][:7]
+    current = cur.tag or cur.commit[:7]
     decision = upstream_check.check(root, f"src/{pin}")
-    print(f"{pin}: {' '.join(decision)}")
-    verb = decision[0]
+    ci.log.info(f"{pin}: {decision.line()}")
+    verb = decision.verb
     if verb == "bump":
-        tag, commit = decision[1], decision[2]
-        old = cur["UPSTREAM_TAG"] or cur["UPSTREAM_COMMIT"]
+        tag, commit = decision.tag, decision.commit
+        old = cur.tag or cur.commit
         try:
             pins.set_upstream(Path(root) / path, tag, commit)
         except ValueError as e:
             raise Fail(f"cannot write {path} ({e})")
-        return commit_pin(pin, [path], f"Bump {pin} to {tag}", current, tag, f"https://github.com/{cur['UPSTREAM_WATCH']}/compare/{old}...{tag}",
-                          commit_age(cur["UPSTREAM_WATCH"], commit))
+        return commit_pin(pin, [path], f"Bump {pin} to {tag}", current, tag, f"https://github.com/{cur.watch}/compare/{old}...{tag}", commit_age(cur.watch, commit))
     if verb == "forkbehind":
-        return f"the fork is behind upstream ({decision[1]}): run gh repo sync on it first"
+        return f"the fork is behind upstream ({decision.tag}): run gh repo sync on it first"
     if verb == "unreachable":
-        raise Fail(" ".join(decision[1:]))
-    return f"nothing to bump: {' '.join(decision)}"
+        raise Fail(decision.text)
+    return f"nothing to bump: {decision.line()}"
 
 
 def bump_ghostty(root):
@@ -102,23 +102,23 @@ def bump_ghostty(root):
         cur = pins.load_upstream(Path(root) / files[0])
     except ValueError:
         raise Fail("invalid upstream.env")
-    current = f"{cur['UPSTREAM_TAG']}, zig {pins.read_env(Path(root) / files[1]).get('ZIG_VERSION', '')}"
+    current = f"{cur.tag}, zig {pins.read_env(Path(root) / files[1]).get('ZIG_VERSION', '')}"
     decision = ghostty_check.check(root)
-    print(f"ghostty: {' '.join(decision)}")
-    verb = decision[0]
+    ci.log.info(f"ghostty: {decision.line()}")
+    verb = decision.verb
     if verb == "bump":  # a new Ghostty tag brings the Zig minor it needs: one commit for both, they cannot be applied apart
-        tag, commit, zig = decision[1], decision[2], decision[3]
+        tag, commit, zig = decision.tag, decision.commit, decision.zig
         try:
-            pins.write_ghostty(Path(root) / "src/ghostty", *decision[1:])
+            pins.write_ghostty(Path(root) / "src/ghostty", tag, commit, zig, decision.zig_url, decision.zig_sha256, decision.zig_size)
         except ValueError as e:
             raise Fail(f"writing the Ghostty and Zig pins failed ({e})")
         return commit_pin("ghostty", files, f"Bump ghostty to {tag} (Zig {zig})", current, f"{tag}, zig {zig}",
-                          f"https://github.com/{cur['UPSTREAM_WATCH']}/compare/{cur['UPSTREAM_TAG']}...{tag}", commit_age(cur["UPSTREAM_WATCH"], commit))
+                          f"https://github.com/{cur.watch}/compare/{cur.tag}...{tag}", commit_age(cur.watch, commit))
     if verb == "wait":
-        return f"nothing to bump yet: {' '.join(decision[1:])}"
+        return f"nothing to bump yet: {decision.tag} {decision.text}"
     if verb == "unreachable":
-        raise Fail(" ".join(decision[1:]))
-    return f"nothing to bump: {' '.join(decision)}"
+        raise Fail(decision.text)
+    return f"nothing to bump: {decision.line()}"
 
 
 def bump_builder(root):
@@ -149,6 +149,31 @@ def bump_builder(root):
     return commit_pin("builder", [path], f"Bump the Fedora {major} builder digest (built {created.split('T')[0]})", current, f"{major}@{new[:19]}", f"{repo}:{major}", age)
 
 
+def locked_versions(lock_text):
+    """name -> version of every package in a uv.lock."""
+    return {p["name"]: p["version"] for p in tomllib.loads(lock_text).get("package", []) if "version" in p}
+
+
+def lock_changes(before, after):
+    """The packages whose locked version differs between two uv.lock texts, as `name old to new` (added and removed ones included)."""
+    old, new = locked_versions(before), locked_versions(after)
+    return [f"{n} {old.get(n, '-')} to {new.get(n, '-')}" for n in sorted(old.keys() | new.keys()) if old.get(n) != new.get(n)]
+
+
+def bump_python_deps(root):
+    path = Path(root) / "uv.lock"
+    before = path.read_text()
+    proc = subprocess.run(["uv", "lock", "--upgrade"], cwd=root, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise Fail(f"uv lock --upgrade failed: {ci.text(proc.stderr, 200)}")
+    changes = lock_changes(before, path.read_text())
+    if not changes:
+        return "nothing to bump: every locked version is current"
+    shown = ", ".join(changes[:4]) + (f" and {len(changes) - 4} more" if len(changes) > 4 else "")
+    return commit_pin("python-deps", ["uv.lock"], "Bump the locked Python dependencies of the CI scripts", "the locked versions", f"{len(changes)} updated: {shown}",
+                      "https://github.com/redcodeworks/octarine-bins/blob/testing/pyproject.toml (the ranges stay, only uv.lock moves)", "n/a")
+
+
 def bump(pin, root="."):
     """Check one pin; returns the status line, raises Fail. The working tree is restored on failure."""
     if git("diff", "--quiet").returncode != 0:
@@ -159,18 +184,19 @@ def bump(pin, root="."):
         return bump_ghostty(root)
     if pin == "builder":
         return bump_builder(root)
+    if pin == "python-deps":
+        return bump_python_deps(root)
     raise Fail(f"unknown pin '{pin}'")
 
 
-def main(argv):
-    if len(argv) != 1:
-        print("usage: bump_run.py scx|extest|ghostty|builder", file=sys.stderr)
-        return 2
-    pin = argv[0]
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("pin", choices=["scx", "extest", "ghostty", "builder", "python-deps"], help="the pin to check")
+    pin = ap.parse_args(argv).pin
     try:
         status = bump(pin)
     except Fail as e:
-        ci.error(f"{pin}: {e}")
+        ci.log.error(f"{pin}: {e}")
         git("checkout", "-q", "--", ".")
         say(f"`{pin}`: FAILED, {e}")
         return 1
@@ -179,4 +205,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

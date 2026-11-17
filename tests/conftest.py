@@ -3,6 +3,7 @@
 The fakes are real executable Python files that the scripts under test start as they would start the real tools, so the tests run the real script into the real
 reader. Their behavior comes from the environment: STATE (a directory with one file per tag, the manifest), MODE, COSIGN_MODE, REV, LOG, COUNT, DB.
 """
+import importlib.util
 import os
 import subprocess
 import sys
@@ -37,3 +38,18 @@ def script(name, *args, cwd=None, env=None, extra=None):
 def git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
                           env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}).stdout.strip()
+
+
+@pytest.fixture
+def github(monkeypatch):
+    """A fake GitHub API: the scripts (this process and subprocesses) talk to it through GITHUB_API_URL, GITHUB_REPOSITORY is o/r."""
+    spec = importlib.util.spec_from_file_location("github_api", FAKES / "github_api.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    api = module.FakeGitHub()
+    monkeypatch.setenv("GITHUB_API_URL", api.url)
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("RETRY_DELAY", "0")
+    yield api
+    api.stop()

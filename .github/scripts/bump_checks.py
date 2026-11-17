@@ -11,94 +11,95 @@ suite), this script waits for that run and posts check runs named `test` and `se
 run `test` with the marker title. Always exits 0 (a warning line says what is missing). Env: BUMP_BASE (the ref Test is dispatched on, default testing), BUMP_CHECKS_WAIT (seconds
 to wait for the dispatched run to appear, 90; 0 = do not wait), BUMP_CHECKS_POLL (5), BUMP_CHECKS_RUN_MAX (seconds to watch the run, 900).
 """
-import json
 import os
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
+
+from githubkit.exception import RequestError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci  # noqa: E402
 
 MARKER = "Reported by bump_checks.py"
+API_ERRORS = (RequestError, ci.GhTransportError)
 
 
 def warn(msg):
-    print(f"::warning::{msg}")
+    ci.log.warning(msg)
     ci.append_to("GITHUB_STEP_SUMMARY", f"- {msg}")
 
 
-def gh(*args, **kw):
-    return subprocess.run(["gh", *args], capture_output=True, text=True, **kw)
-
-
-def find_run(title):
+def find_run(repo, title):
     """The id of the dispatched Test run named `title`, or None."""
-    proc = gh("run", "list", "--workflow", "test.yml", "--event", "workflow_dispatch", "--limit", "50", "--json", "databaseId,displayTitle")
-    try:
-        runs = json.loads(proc.stdout)
-    except ValueError:
-        return None
-    return next((r["databaseId"] for r in runs if r["displayTitle"] == title), None)
+    runs = ci.gh_api(f"/repos/{repo}/actions/workflows/test.yml/runs", event="workflow_dispatch", per_page=50) or {}
+    return next((r["id"] for r in runs.get("workflow_runs", []) if r.get("display_title") == title), None)
 
 
-def main(argv):
-    if len(argv) != 2:
-        print("usage: bump_checks.py <branch> <commit sha>", file=sys.stderr)
-        return 2
-    branch, sha = argv
+def wait_for_completion(repo, run_id, run_max, poll):
+    """Poll the run until it is completed or `run_max` seconds have passed; returns the run (a dict) or None."""
+    deadline = time.monotonic() + run_max
+    while True:
+        run = ci.gh_api(f"/repos/{repo}/actions/runs/{run_id}")
+        if run and run.get("status") == "completed":
+            return run
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(poll)
+
+
+def main(argv=None):
+    ap = ci.arg_parser(__doc__)
+    ap.add_argument("branch", help="the bump branch (for messages)")
+    ap.add_argument("sha", help="the bump commit")
+    args = ap.parse_args(argv)
+    branch, sha = args.branch, args.sha
     repo = os.environ["GITHUB_REPOSITORY"]
     base = os.environ.get("BUMP_BASE", "testing")
     wait_s, poll, run_max = ci.int_env("BUMP_CHECKS_WAIT", 90), ci.int_env("BUMP_CHECKS_POLL", 5), ci.int_env("BUMP_CHECKS_RUN_MAX", 900)
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         warn(f"bump checks for {branch}: not a commit sha '{sha}', nothing posted")
         return 0
-    existing = ci.gh_api(f"repos/{repo}/commits/{sha}/check-runs?per_page=100") or {}
+    existing = ci.gh_api(f"/repos/{repo}/commits/{sha}/check-runs", per_page=100) or {}
     if any(r.get("name") == "test" and (r.get("output") or {}).get("title") == MARKER for r in existing.get("check_runs", [])):
-        print(f"{sha[:7]} already has its reported checks")
+        ci.log.info(f"{sha[:7]} already has its reported checks")
         return 0
     title = f"Test of {sha}"
-    run_id = find_run(title)
+    run_id = find_run(repo, title)
     if run_id is None:
-        if gh("workflow", "run", "test.yml", "--ref", base, "-f", f"ref={sha}").returncode == 0:
-            print(f"Dispatched the Test workflow on {base} for {sha[:7]} ({branch})")
-        else:
+        try:
+            ci.gh_request("POST", f"/repos/{repo}/actions/workflows/test.yml/dispatches", json={"ref": base, "inputs": {"ref": sha}})
+            ci.log.info(f"Dispatched the Test workflow on {base} for {sha[:7]} ({branch})")
+        except API_ERRORS:
             warn(f"Could not dispatch the Test workflow on {branch}: start it by hand with: gh workflow run test.yml --ref {base} -f ref={sha}")
             return 0
     waited = 0
-    while run_id is None and waited < wait_s:
+    while run_id is None and waited < wait_s:  # a poll, not a retry: the dispatched run does not exist yet for a moment
         time.sleep(poll)
         waited += poll
-        run_id = find_run(title)
+        run_id = find_run(repo, title)
     if run_id is None:
         warn(f"bump checks for {branch}: no Test run for {sha[:7]} found, nothing posted (re-run the bump workflow)")
         return 0
-    try:
-        subprocess.run(["gh", "run", "watch", str(run_id), "-R", repo, "--interval", "20"], capture_output=True, timeout=run_max)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        info = json.loads(gh("run", "view", str(run_id), "-R", repo, "--json", "status,url,jobs").stdout)
-    except ValueError:
-        info = {}
-    if info.get("status") != "completed":
+    run = wait_for_completion(repo, run_id, run_max, 20)
+    if run is None:
         warn(f"bump checks for {branch}: the Test run {run_id} did not finish, nothing posted")
         return 0
-    url = info["url"]
+    url = run["html_url"]
+    jobs = (ci.gh_api(f"/repos/{repo}/actions/runs/{run_id}/jobs", per_page=100) or {}).get("jobs", [])
     for name in ("test", "secrets"):
-        job = next((j for j in info.get("jobs", []) if j["name"] == name), {})
+        job = next((j for j in jobs if j["name"] == name), {})
         conclusion = "success" if job.get("conclusion") == "success" else "failure"
-        posted = gh("api", "-X", "POST", f"repos/{repo}/check-runs", "-f", f"name={name}", "-f", f"head_sha={sha}", "-f", "status=completed", "-f", f"conclusion={conclusion}",
-                    "-f", f"details_url={url}", "-f", f"output[title]={MARKER}",
-                    "-f", f"output[summary]=The job `{name}` of the dispatched Test run {url} finished with {conclusion}.")
-        if posted.returncode == 0:
-            print(f"posted check run {name}={conclusion} on {sha[:7]}")
-        else:
+        try:
+            ci.gh_request("POST", f"/repos/{repo}/check-runs", json={
+                "name": name, "head_sha": sha, "status": "completed", "conclusion": conclusion, "details_url": url,
+                "output": {"title": MARKER, "summary": f"The job `{name}` of the dispatched Test run {url} finished with {conclusion}."}})
+            ci.log.info(f"posted check run {name}={conclusion} on {sha[:7]}")
+        except API_ERRORS:
             warn(f"bump checks for {branch}: could not post the check run {name}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
