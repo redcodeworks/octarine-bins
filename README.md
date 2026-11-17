@@ -44,6 +44,14 @@ Verify what you pull with the public key in this repository:
 cosign verify --key cosign.pub ghcr.io/redcodeworks/octarine-bins:latest
 ```
 
+Images built from 2026-11-17 on also carry a GitHub build provenance attestation (which commit and workflow built the digest), a second check next to the signature:
+
+```
+gh attestation verify oci://ghcr.io/redcodeworks/octarine-bins@<digest> \
+  --repo redcodeworks/octarine-bins \
+  --signer-workflow redcodeworks/octarine-bins/.github/workflows/binaries.yml
+```
+
 Build it locally with `just build` and check the result with `just layout`.
 
 ## Contributing
