@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# The fast sanity check (first step of the required `test` job of test.yml, about 10 s): every shell script parses, and every workflow file is valid YAML (a broken
+# The fast sanity check (first step of the required `test` job of test.yml, about 10 s): every shell script parses, and every workflow and action file is valid YAML (a broken
 # one gives a "workflow file issue" with no job and no useful message). Everything else shows where it matters. Run from the repository root.
 set -uo pipefail
 fail=0
 while IFS= read -r f; do bash -n "$f" || { echo "FAIL: bash -n $f"; fail=1; }; done < <(git ls-files '*.sh')
 python3 -I - <<'PY' || fail=1
 import glob, sys, yaml
-for f in sorted(glob.glob(".github/workflows/*.yml")):
+for f in sorted(glob.glob(".github/workflows/*.yml") + glob.glob(".github/actions/*/action.yml")):
     try:
         yaml.safe_load(open(f))
     except Exception as e:

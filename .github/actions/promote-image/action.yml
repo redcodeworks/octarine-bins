@@ -7,7 +7,7 @@ inputs:
     description: Image name under ghcr.io/<owner>/ (octarine-bins, octarine-bins-dx or octarine-bins-gx)
     required: true
   dir:
-    description: Build directory of the image (src, dx or gx): the trees promote compares
+    description: Build directory of the image (src, dx or gx), the trees promote compares
     required: true
 runs:
   using: composite
