@@ -15,7 +15,7 @@ def repo(tmp_path):
     r = tmp_path / "repo"
     r.mkdir()
     git(r, "init", "-q")
-    files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/builder.env": "b", "installer/install.sh": "i1",
+    files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/NOTES.md": "n", "dx/packages/NOTES.md": "n", "src/builder.env": "b", "installer/install.sh": "i1",
              "dx/Containerfile": "dc", "dx/components.tsv": "dt", "dx/packages/required-fedora.txt": "dp", "dx/README.md": "doc",
              "gx/Containerfile": "gc", "gx/components.tsv": "gt", "gx/packages/required-fedora.txt": "gp", "gx/README.md": "doc",
              "README.md": "doc", "Justfile": "j", "tests/t.py": "t", ".github/workflows/binaries.yml": "wf",
@@ -55,9 +55,9 @@ RULES = [
     ("tests/t.py", "src", True), ("README.md", "src", True), ("dx/README.md", "dx", True), ("gx/README.md", "gx", True),
     # content: the base
     ("src/f", "src", False), ("src/Containerfile", "src", False), ("src/lib/stage.sh", "src", False), ("src/lib/assemble.sh", "src", False),
-    ("src/builder.env", "src", False), ("installer/install.sh", "src", False), ("dx/packages/required-fedora.txt", "src", True),
+    ("src/builder.env", "src", False), ("installer/install.sh", "src", False), ("src/NOTES.md", "src", False), ("dx/packages/required-fedora.txt", "src", True),
     # content: dx reads only its own files, assemble.sh, the builder pin and the installer
-    ("dx/packages/required-fedora.txt", "dx", False), ("dx/Containerfile", "dx", False), ("dx/components.tsv", "dx", False),
+    ("dx/packages/required-fedora.txt", "dx", False), ("dx/packages/NOTES.md", "dx", False), ("dx/Containerfile", "dx", False), ("dx/components.tsv", "dx", False),
     ("src/lib/assemble.sh", "dx", False), ("src/builder.env", "dx", False), ("installer/install.sh", "dx", False),
     ("src/f", "dx", True), ("src/lib/stage.sh", "dx", True), ("gx/packages/required-fedora.txt", "dx", True),
     ("gx/packages/required-fedora.txt", "gx", False), ("dx/packages/required-fedora.txt", "gx", True), ("installer/install.sh", "gx", False),

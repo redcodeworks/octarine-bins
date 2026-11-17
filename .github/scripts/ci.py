@@ -157,11 +157,11 @@ def version(tag: str) -> Version:
 
 
 def inputs(directory: str) -> list[str]:
-    """What lands in an image, derived from its Containerfile's COPY lines: the ONE definition, used by the build skip and by the promotion guard alike.
+    """What lands in an image: a hand-written list (the ONE definition, used by the build skip and by the promotion guard alike) that the `sanity` copy guard checks against the Containerfiles' COPY lines.
 
     src: the whole `src/` (Containerfile, components.tsv, builder.env, lib, the components, packages) and `installer/`. dx and gx: their Containerfile, components.tsv and
-    packages/, the one shared helper they copy (`src/lib/assemble.sh`), the builder pin (`src/builder.env`) and `installer/`. Markdown files are left out (see `content_id`).
-    Not inputs: the Justfile, `.github/**`, tests, READMEs and docs; a change to those builds nothing (see CLAUDE.md, "Skipping a build").
+    packages/, the one shared helper they copy (`src/lib/assemble.sh`), the builder pin (`src/builder.env`) and `installer/`.
+    Not inputs: the Justfile, `.github/**`, tests, READMEs and docs (they are not inputs; every path under an input counts, markdown included); a change to those builds nothing (see CLAUDE.md, "Skipping a build").
     """
     match directory:
         case "src":
@@ -188,8 +188,7 @@ def fetch_commit(rev: str) -> bool:
 
 
 def content_id(commit: str, directory: str) -> str:
-    """sha256 over `git ls-tree -r <commit> -- <inputs>` (modes, blob ids, paths) without the `*.md` files: one value for the content of an image at a commit. Equal values mean
+    """sha256 over `git ls-tree -r <commit> -- <inputs>` (modes, blob ids, paths) (every path under an input counts): one value for the content of an image at a commit. Equal values mean
     the same image content, whatever else changed in between."""
     out = git("ls-tree", "-r", commit, "--", *inputs(directory))  # a bad commit raises CalledProcessError, never an empty hash
-    lines = [line for line in out.splitlines() if not line.endswith(".md")]
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    return hashlib.sha256(out.encode()).hexdigest()
