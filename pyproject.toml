@@ -1,5 +1,6 @@
 # Dependencies of the CI scripts and their tests (not a package). The versions are pinned with hashes in uv.lock; every workflow and recipe runs `uv run --frozen`, so nothing resolves at run time.
-# The weekly bump workflow proposes new locked versions as its own pull request (`uv lock --upgrade`, the `python-deps` kind).
+# The exact interpreter is .python-version (uv-managed, never the runner's system Python); requires-python is only the floor the lock is valid for.
+# The weekly bump workflow proposes new locked versions (`uv lock --upgrade`, the `python-deps` kind) and a newer patch release of the interpreter (the `python` kind), each as its own pull request.
 [project]
 name = "octarine-bins-ci"
 version = "0"

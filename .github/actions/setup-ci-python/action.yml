@@ -1,7 +1,7 @@
 name: Set up the Python of the CI scripts
 description: >-
-  Installs uv (pinned) and caches uv's download cache and the uv-managed Python, keyed on uv.lock, so a run reuses the locked dependencies and Python 3.14 (.python-version)
-  instead of downloading them. The scripts then run with `uv run --frozen --no-dev python -I .github/scripts/<name>.py`: nothing is resolved at run time. The caller checks
+  Installs uv (pinned) and the exact Python of .python-version as a uv-MANAGED interpreter (never the runner image's system Python: UV_PYTHON_PREFERENCE is only-managed), and
+  caches uv's download cache and that managed Python, keyed on uv.lock and .python-version, so a run reuses the locked dependencies and the interpreter instead of downloading them. The scripts then run with `uv run --frozen --no-dev python -I .github/scripts/<name>.py`: nothing is resolved at run time. The caller checks
   out the repository first.
 inputs:
   cache:
@@ -10,10 +10,18 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Use only the uv-managed Python
+      shell: bash
+      # The runner image ships its own python3.14, which uv would pick for a request that it satisfies, so the patch version floated with the image and cache-python found
+      # nothing to save. setup-uv itself points UV_PYTHON_INSTALL_DIR at ${RUNNER_TEMP}/uv-python-dir, the directory cache-python saves and restores.
+      run: echo "UV_PYTHON_PREFERENCE=only-managed" >> "${GITHUB_ENV}"
+
     - name: Set up uv
       uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         version: 0.13.7
         enable-cache: ${{ inputs.cache }}
-        cache-dependency-glob: uv.lock
+        cache-dependency-glob: |
+          uv.lock
+          .python-version
         cache-python: ${{ inputs.cache }}
