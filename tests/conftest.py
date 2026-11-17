@@ -1,7 +1,7 @@
 """Fixtures of the tests: the scripts on sys.path, and the fake skopeo, cosign and gh programs of tests/fakes/ on PATH (no network, nothing is pulled).
 
 The fakes are real executable Python files that the scripts under test start as they would start the real tools, so the tests run the real script into the real
-reader. Their behavior comes from the environment: STATE (a directory with one file per tag, the manifest), MODE, COSIGN_MODE, LOG, COUNT, DB.
+reader. Their behavior comes from the environment: STATE (a directory with one file per tag, the manifest), MODE, COSIGN_MODE, REV, LOG, COUNT, DB.
 """
 import importlib.util
 import os

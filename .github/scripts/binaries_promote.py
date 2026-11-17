@@ -2,11 +2,13 @@
 """Promote the binaries: retag the TESTED, signed <image>:testing to :latest (no rebuild, same digest, same signature). Usage: binaries_promote.py <registry-image> <dir>
 
 Runs on main only (binaries.yml, binaries-dx.yml, binaries-gx.yml); nothing else moves `latest`. dir: src, dx or gx; writes changed=true|false and digest=<digest of latest>
-to GITHUB_OUTPUT. Fails, and changes nothing, unless `testing` exists, verifies with cosign.pub and IS the build of exactly the inputs being promoted: the tag
-ci.inputs_tag(dir) of this checkout (HEAD, the merge commit of the promotion PR) names the digest of `testing`. A change to docs or tests changes no inputs, so it does not make the
-image stale; a running or failed build on testing, or a testing that moved on, fails the promotion: re-run it when the tip's build is green.
-Afterwards the tag is read back until it shows the digest, and the signature is verified through `latest`.
+to GITHUB_OUTPUT. Fails, and changes nothing, unless `testing` exists, verifies with cosign.pub and was built from exactly the binaries being promoted: the image's own
+content (ci.inputs) at the commit named by its label org.opencontainers.image.revision must equal that of this checkout (HEAD, the merge commit of the promotion PR).
+The same definition of content as binaries_skip.py: a push that did not change it leaves `testing` at an older revision, and tooling or docs never make the image stale. A running or failed build on testing, or a testing that moved on, fails the promotion: re-run it when the tip's build is green.
+Afterwards the tag is read back until it shows the digest, and the signature is verified through `latest`. Run it in a git checkout (the revision is fetched when missing).
 """
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -26,18 +28,23 @@ def promote(image, directory):
         raise Fail(f"{image}:testing could not be read ({e}); build on testing first")
     try:
         registry.cosign_check(["--key", "cosign.pub", f"{image}@{tested}"])
-    except (registry.NotVerified, registry.ReadError):
+    except registry.NotVerified:
         raise Fail(f"{image}@{tested} is not signed with cosign.pub")
-    tag = ci.inputs_tag(directory)
-    try:
-        built = registry.digest(image, tag)
-    except registry.Absent:
-        raise Fail(f"no build of these inputs ({image}:{tag} does not exist): the build on testing is running, failed, or testing moved on; re-run promote when the tip's build is green")
     except registry.ReadError as e:
-        raise Fail(f"{image}:{tag} could not be read ({e})")
-    if built != tested:
-        raise Fail(f"testing ({tested}) is not the build of these inputs ({tag} is {built}): the build on testing is running, failed, or testing moved on; "
-                   "re-run promote when the tip's build is green")
+        raise Fail(f"{image}@{tested} could not be verified (a read error, not a bad signature): {e}")
+    try:
+        config = json.loads(registry.read_by_digest("config", image, tested))
+    except (registry.Absent, registry.ReadError, ValueError):
+        raise Fail(f"the config of {image}@{tested} could not be read")
+    rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}", rev):
+        raise Fail(f"{image}:testing has no valid revision label ('{rev}')")
+    if not ci.fetch_commit(rev):
+        raise Fail(f"the revision {rev} of {image}:testing cannot be fetched")
+    built, this = ci.content_id(rev, directory), ci.content_id("HEAD", directory)
+    if built != this:
+        raise Fail(f"testing was built from {rev}, whose content differs from this checkout's ({' '.join(ci.inputs(directory))}): the build on testing is running, failed, "
+                   "or testing moved on; re-run promote when the tip's build is green")
     try:
         current = registry.digest(image, "latest")
     except registry.Absent:
