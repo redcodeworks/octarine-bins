@@ -58,18 +58,22 @@ exists() { # <name> <repo arg>...
 # entries <file>: the file's tokens, comments and blanks dropped
 entries() { sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$1"; }
 
-# resolve <tier> <repo arg>...  (entries on stdin): applies EXCLUDE and the alternatives; prints the package arguments to install. A required entry with no
-# existing alternative fails; an optional one is reported as missing.
+# resolve <tier> <expected count> <repo arg>...  (entries on stdin): applies EXCLUDE and the alternatives; prints the package arguments to install. A required entry
+# with no existing alternative fails; an optional one is reported as missing. The entries are read into an array FIRST: a command inside a `while read` loop (dnf5
+# in `exists`) reads the loop's stdin too and silently ends it, so every entry after an `a|b` line was lost. The counts must add up: entries read = entries in the
+# file, and installed + excluded + missing = entries read, or the build fails.
 resolve() {
-    local tier=$1 entry a pick skip; shift
-    local alts=()
-    while IFS= read -r entry; do
+    local tier=$1 want=$2 entry a pick skip n_pick=0 n_excl=0 n_miss=0; shift 2
+    local alts=() list=()
+    mapfile -t list
+    [[ "${#list[@]}" -eq "${want}" ]] || die "read ${#list[@]} of ${want} entries"
+    for entry in "${list[@]}"; do
         [[ ! "${entry}" =~ [[:space:]] ]] || die "more than one token on a line: '${entry}'"
         IFS='|' read -r -a alts <<<"${entry}"
         skip=""
         for a in "${alts[@]}"; do [[ -z "${excluded[${a}]:-}" ]] || { skip=${a}; break; }; done
-        if [[ -n "${skip}" ]]; then echo "excluded: ${entry} (EXCLUDE has ${skip})" >&2; continue; fi
-        if [[ "${#alts[@]}" -eq 1 ]]; then echo "${entry}"; continue; fi
+        if [[ -n "${skip}" ]]; then echo "excluded: ${entry} (EXCLUDE has ${skip})" >&2; n_excl=$((n_excl + 1)); continue; fi
+        if [[ "${#alts[@]}" -eq 1 ]]; then echo "${entry}"; n_pick=$((n_pick + 1)); continue; fi
         for a in "${alts[@]}"; do
             [[ -n "${a}" && "${a}" != @* ]] || die "bad alternative in '${entry}' (empty, or a group: groups cannot have alternatives)"
         done
@@ -77,13 +81,14 @@ resolve() {
         for a in "${alts[@]}"; do if exists "${a}" "$@"; then pick=${a}; break; fi; done
         if [[ -n "${pick}" ]]; then
             echo "resolved: ${entry} -> ${pick}" >&2
-            echo "${pick}"
+            echo "${pick}"; n_pick=$((n_pick + 1))
         elif [[ "${tier}" == required ]]; then
             die "none of the alternatives exists in the enabled repositories: ${entry}"
         else
-            missing "${entry}" "no alternative exists" >&2
+            missing "${entry}" "no alternative exists" >&2; n_miss=$((n_miss + 1))
         fi
     done
+    [[ $((n_pick + n_excl + n_miss)) -eq "${want}" ]] || die "${n_pick} installed + ${n_excl} excluded + ${n_miss} missing is not the ${want} entries"
 }
 
 # dnf_install <tier> <repo arg>... -- <package>...
@@ -112,8 +117,10 @@ optional() {
 }
 
 copr() { # <tier> <file>
-    local tier=$1 file=$2 entry repo pkg
-    while IFS= read -r entry; do
+    local tier=$1 file=$2 entry repo pkg n=0 list=()
+    mapfile -t list < <(entries "${file}")   # (an array first, as in resolve: dnf5 must not read the list)
+    for entry in "${list[@]}"; do
+        n=$((n + 1))
         [[ "${entry}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:[A-Za-z0-9_.+]+(-[A-Za-z0-9_.+]+)*-[0-9][A-Za-z0-9_.+~^]*-[0-9][A-Za-z0-9_.+~^]*$ ]] \
             || die "'${entry}' is not owner/project:name-version-release (an exact version and release is required)"
         repo=${entry%%:*}; pkg=${entry#*:}
@@ -130,7 +137,8 @@ copr() { # <tier> <file>
             missing "${pkg}" "COPR ${repo} could not be enabled"
         fi
         dnf5 -y copr disable "${repo}" || echo "install.sh: WARNING could not disable the COPR ${repo}" >&2
-    done < <(entries "${file}")
+    done
+    [[ "${n}" -eq "$(entries "${file}" | wc -l)" ]] || die "handled ${n} of the entries of ${file}"
 }
 
 for tier in required optional; do
@@ -145,7 +153,7 @@ for tier in required optional; do
             copr "${tier}" "${file}"
         else
             # (a command substitution, not mapfile < <(...): a failing resolve must fail the build)
-            resolved=$(entries "${file}" | resolve "${tier}" "${repo_args[@]}")
+            resolved=$(entries "${file}" | resolve "${tier}" "$(entries "${file}" | wc -l)" "${repo_args[@]}")
             pkgs=()
             [[ -z "${resolved}" ]] || mapfile -t pkgs <<<"${resolved}"
             echo "Installing ${#pkgs[@]} ${tier} entries from ${file}"
