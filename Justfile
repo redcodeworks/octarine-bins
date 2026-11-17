@@ -28,22 +28,9 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
 
 # Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component; every image carries /packages
 layout image="octarine-bins:dev" dir="src":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    listing=$(mktemp); trap 'rm -f "${listing}"' EXIT
-    id=$(${PODMAN:-podman} create "{{ image }}" /nonexistent)
-    ${PODMAN:-podman} export "${id}" | tar -t > "${listing}"
-    ${PODMAN:-podman} rm "${id}" > /dev/null
-    # every image: /packages (its lists and the installer) is required; dx and gx also need no binary component
-    extra=(--packages "$(ls {{ dir }}/packages | tr '\n' ' ')install.sh"); [[ "{{ dir }}" == src ]] || extra+=(--allow-empty)
-    .github/scripts/binaries-layout.sh --assembled "${extra[@]}" "${listing}" src/scx/schedulers.tsv $(grep -vE '^[[:space:]]*(#|$)' {{ dir }}/components.tsv | cut -f1)
+    uv run --frozen --no-dev python -I .github/scripts/binaries_layout.py "{{ image }}" "{{ dir }}"
 
-# Run the tests
+# Run the tests: pytest through uv (the locked dependencies, Python from .python-version) and the installer test (bash, it tests installer/install.sh)
 test:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    fail=0
-    for t in tests/*.sh; do
-        if out=$(timeout 600 bash "$t" 2>&1); then echo "PASS $t"; else echo "FAIL $t"; echo "$out"; fail=1; fi
-    done
-    exit "$fail"
+    uv run --frozen pytest
+    bash tests/installer.sh

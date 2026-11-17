@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Fake cosign: `sign` and `verify` succeed or fail as COSIGN_MODE says (ok | nosig | badsig | down | flaky), and log the call in LOG."""
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if "LOG" in os.environ:
+    with open(os.environ["LOG"], "a") as log:
+        log.write("cosign " + " ".join(args) + "\n")
+
+count_file = Path(os.environ["COUNT"]) if "COUNT" in os.environ else None
+calls = (int(count_file.read_text()) if count_file and count_file.exists() else 0) + 1
+if count_file:
+    count_file.write_text(str(calls))
+
+mode = os.environ.get("COSIGN_MODE", "ok")
+messages = {
+    "nosig": "Error: no signatures found",
+    "badsig": "Error: no matching signatures: invalid signature when validating ASN.1 encoded signature",
+    "down": "Error: context deadline exceeded",
+}
+if mode in messages:
+    print(messages[mode], file=sys.stderr)
+    sys.exit(1)
+if mode == "flaky" and calls <= 1:
+    print("Error: GET https://ghcr.io/v2/: TLS handshake timeout", file=sys.stderr)
+    sys.exit(1)

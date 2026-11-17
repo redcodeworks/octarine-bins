@@ -1,0 +1,2 @@
+The original shell CI scripts (`scripts/*.sh`) and their shell tests (`tests/*.sh`), kept exactly as they were on `origin/testing` at commit 5cf8fd9 (taken 2026-11-16, before the Python rewrite of PR #21). Nothing runs or checks them.
+To revert to shell: move `scripts/` back to `.github/scripts/` and `tests/` to `tests/`, delete the Python scripts and tests, and restore the call lines of the workflows, the three composite actions and the Justfile from that commit (`git diff 5cf8fd9 -- .github/workflows .github/actions Justfile`).
