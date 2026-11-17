@@ -7,6 +7,7 @@ script adds it back with two lines (see any script) before it imports this modul
 import argparse
 import contextlib
 import functools
+import hashlib
 import logging
 import os
 import re
@@ -155,12 +156,10 @@ def version(tag: str) -> Version:
         raise ValueError(f"'{tag}' is not a version") from e
 
 
-def inputs(directory: str, trees_only: bool = False) -> list[str]:
-    """The paths a binaries image is built from, in order: the ONE place that says what rebuilds which image.
-
-    trees_only: only the directories whose content IS the image (binaries-promote compares those). Otherwise also what decides HOW it is built (the Justfile,
-    the shared build action, the layout checker, the push script, the image's own caller workflow); binaries_skip hashes all of it. A change to src/lib or the
-    builder therefore rebuilds all three images, dx/ only dx, gx/ only gx, installer/ all three. Docs, tests, other workflows and scripts rebuild nothing.
+def inputs(directory: str) -> list[str]:
+    """The paths a binaries image is built from, in order: the ONE place that says what rebuilds which image: the directories whose content IS the image, and what decides HOW
+    it is built (the Justfile, the shared build action, the layout checker, the push script, the image's own caller workflow). A change to src/lib or the builder therefore
+    rebuilds all three images, dx/ only dx, gx/ only gx, installer/ all three. Docs, tests, other workflows and scripts rebuild nothing.
     """
     match directory:
         case "src":
@@ -169,6 +168,12 @@ def inputs(directory: str, trees_only: bool = False) -> list[str]:
             workflow, trees = f"binaries-{directory}.yml", [directory, "src/lib", "src/builder.env", "installer"]
         case _:
             raise ValueError(f"unknown image directory '{directory}' (src, dx or gx)")
-    if trees_only:
-        return trees
     return trees + ["Justfile", f".github/workflows/{workflow}", ".github/actions/build-image", ".github/scripts/push_image.py", ".github/scripts/binaries_layout.py"]
+
+
+def inputs_tag(directory: str, commit: str = "HEAD") -> str:
+    """The registry tag that names the inputs of an image: `inputs-` and 24 hex digits of the sha256 of `git ls-tree -r <commit> -- <inputs>` (file modes, blob ids and paths, so the
+    same files give the same tag in any commit). The push step points it at the digest it pushed; binaries_skip and binaries_promote ask the registry which digest these inputs gave.
+    A tag, not a label: a label would be part of the digest, and the digest must change only when the image's content does."""
+    out = run(["git", "ls-tree", "-r", commit, "--", *inputs(directory)], capture=True).stdout
+    return "inputs-" + hashlib.sha256(out).hexdigest()[:24]

@@ -1,9 +1,14 @@
-"""The build skip and the promotion, with real git repositories, a fake registry (a directory of tags) and fake skopeo and cosign."""
+"""The build skip and the promotion, with real git repositories, a fake registry (a directory of tags) and fake skopeo and cosign.
+
+The registry state is what push_image.py leaves: `testing` is the digest of the last signed build, and the tag ci.inputs_tag(dir) of the inputs of every build points at its digest.
+"""
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
 
+import ci
 from conftest import git, script
 
 IMG = "ghcr.io/redcodeworks/octarine-bins"
@@ -31,16 +36,34 @@ def change(r, name, content):
     git(r, "commit", "-q", "-am", f"change {name}")
 
 
+def inputs_tag(r, directory, commit="HEAD"):
+    cwd = os.getcwd()
+    os.chdir(r)
+    try:
+        return ci.inputs_tag(directory, commit)
+    finally:
+        os.chdir(cwd)
+
+
+def built(r, state, manifest="tested", directories=("src", "dx")):
+    """What the push step records for the inputs of HEAD: the inputs tag of each image names the manifest."""
+    for d in directories:
+        (state / inputs_tag(r, d)).write_text(manifest)
+
+
 def skip(repo_path, rev, directory="src", **extra):
     out = repo_path.parent / "gho"
     out.write_text("")
-    p = script("binaries_skip.py", IMG, directory, cwd=repo_path, extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra})
+    p = script("binaries_skip.py", IMG, directory, cwd=repo_path, extra={"GITHUB_OUTPUT": str(out), **extra})
     return p, out.read_text().strip()
 
 
 @pytest.fixture
-def tested(fakes):
-    Path(fakes["STATE"], "testing").write_text("tested")
+def tested(fakes, repo):
+    """testing is the build of the first commit's inputs."""
+    state = Path(fakes["STATE"])
+    (state / "testing").write_text("tested")
+    built(repo[0], state)
 
 
 @pytest.mark.parametrize("edit,directory,expected", [
@@ -71,6 +94,21 @@ def test_skip_false_when_testing_does_not_verify(fakes, tested, repo):
     assert p.returncode == 0 and out == "skip=false"
 
 
+def test_tooling_only_change_builds_once_and_then_skips_although_the_digest_did_not_move(fakes, tested, repo):
+    """The loop this guards against: a Justfile change rebuilds to the SAME digest, and every later push of those inputs must skip, not rebuild forever."""
+    r, rev = repo
+    change(r, "Justfile", "new tooling")
+    assert skip(r, rev)[1] == "skip=false"
+    built(r, Path(fakes["STATE"]))  # the push step: the new inputs tag names the (unchanged) digest of testing
+    assert skip(r, rev)[1] == "skip=true"
+
+
+def test_skip_false_when_the_inputs_gave_another_digest_than_testing(fakes, tested, repo):
+    r, rev = repo
+    built(r, Path(fakes["STATE"]), manifest="older build")  # the push finished, signing or the move of testing did not
+    assert skip(r, rev)[1] == "skip=false"
+
+
 def test_skip_false_when_there_is_no_testing_image_yet(fakes, repo):
     r, rev = repo
     p, out = skip(r, rev)
@@ -85,17 +123,18 @@ def test_skip_fails_instead_of_guessing_when_the_registry_is_down(fakes, tested,
 
 @pytest.fixture
 def promoted(fakes, repo):
-    """testing = the first commit's build; HEAD is a merge commit with the same trees."""
+    """testing = the build of the first commit's inputs; HEAD is a merge commit with the same files."""
     r, rev = repo
-    git(r, "commit", "-q", "--amend", "-m", "merge commit, same trees")
+    git(r, "commit", "-q", "--amend", "-m", "merge commit, same files")
     Path(fakes["STATE"], "testing").write_text("tested")
+    built(r, Path(fakes["STATE"]))
     return r, rev, Path(fakes["STATE"]), Path(fakes["LOG"])
 
 
 def promote(r, rev, directory="src", **extra):
     out = r.parent / "pgho"
     out.write_text("")
-    p = script("binaries_promote.py", IMG, directory, cwd=r, extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra})
+    p = script("binaries_promote.py", IMG, directory, cwd=r, extra={"GITHUB_OUTPUT": str(out), **extra})
     return p, out.read_text().split()
 
 
@@ -142,14 +181,15 @@ def test_promote_without_a_testing_image_fails(promoted):
 
 @pytest.mark.parametrize("edit,directory,passes", [
     ("README", "src", True),             # docs only
-    ("src/f", "src", False),             # testing was built from another src/
+    ("src/f", "src", False),             # testing was built from other inputs
+    ("Justfile", "src", False),          # the tooling is an input too: it must have been built on testing first
     ("src/f", "dx", True),               # dx does not read src/ itself
     ("src/lib/x", "dx", False),          # but it reads the shared helpers
     ("src/lib/x", "src", False),
     ("dx/f", "src", True),
     ("installer/install.sh", "dx", False),
 ])
-def test_promote_compares_the_trees_of_the_image(promoted, edit, directory, passes):
+def test_promote_compares_the_inputs_of_the_image(promoted, edit, directory, passes):
     r, rev, state, log = promoted
     change(r, edit, "changed")
     p, _ = promote(r, rev, directory)
@@ -159,13 +199,7 @@ def test_promote_compares_the_trees_of_the_image(promoted, edit, directory, pass
         assert p.returncode == 1 and "testing moved on" in p.stderr and copies(log) == 0
 
 
-def test_skip_decides_although_the_registry_lags_on_the_digest_read(fakes, tested, repo, tmp_path):
-    r, rev = repo
-    p, out = skip(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"))
-    assert p.returncode == 0 and out == "skip=true", p.stderr
-
-
-def test_promote_survives_registry_lag_on_the_digest_read_and_on_cosign(promoted, tmp_path):
+def test_promote_survives_registry_lag_on_cosign(promoted, tmp_path):
     r, rev, state, log = promoted
-    p, out = promote(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"), LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
+    p, out = promote(r, rev, LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
     assert p.returncode == 0 and "changed=true" in out, p.stderr

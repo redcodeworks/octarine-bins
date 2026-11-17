@@ -116,14 +116,3 @@ def test_a_signature_written_a_moment_ago_may_take_a_few_tries_but_a_wrong_one_s
     monkeypatch.setenv("COSIGN_MODE", "nosig")
     with pytest.raises(registry.NotVerified):
         registry.cosign_check_fresh(["--key", "k", "x"])
-
-
-def test_a_digest_the_registry_just_named_is_retried_when_it_answers_unknown(fakes, monkeypatch):
-    """The real failure of the gx build: reading the config of image@digest answered manifest unknown for a digest that was just taken from the tag."""
-    monkeypatch.setenv("DIGEST_LAG_FILE", fakes["LOG"] + ".dlag")
-    monkeypatch.setenv("DIGEST_LAG", "2")
-    assert b"revision" in registry.read_by_digest("config", "ghcr.io/o/i", "sha256:" + "a" * 64)
-    assert int(open(fakes["LOG"] + ".dlag").read()) == 3
-    monkeypatch.setenv("DIGEST_LAG", "99")
-    with pytest.raises(registry.Absent, match="manifest unknown"):
-        registry.read_by_digest("config", "ghcr.io/o/i", "sha256:" + "a" * 64)
