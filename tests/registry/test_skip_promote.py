@@ -201,3 +201,16 @@ def test_promote_survives_registry_lag_on_the_digest_read_and_on_cosign(promoted
     r, rev, state, log = promoted
     p, out = promote(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"), LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
     assert p.returncode == 0 and "changed=true" in out, p.stderr
+
+
+def test_check_mode_accepts_what_promote_accepts_and_writes_nothing(promoted):
+    r, rev, state, log = promoted
+    p = script("binaries_promote.py", "--check", IMG, "src", cwd=r, extra={"REV": rev})
+    assert p.returncode == 0 and copies(log) == 0 and not (state / "latest").exists(), p.stderr
+
+
+def test_check_mode_refuses_a_stale_label_like_promote(promoted):
+    r, rev, state, log = promoted
+    change(r, "src/f", "changed")
+    p = script("binaries_promote.py", "--check", IMG, "src", cwd=r, extra={"REV": rev})
+    assert p.returncode == 1 and "testing moved on" in p.stderr and copies(log) == 0

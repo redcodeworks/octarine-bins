@@ -9,6 +9,10 @@ inputs:
   dir:
     description: Build directory of the image (src, dx or gx), the trees promote compares
     required: true
+  check:
+    description: "'--check' makes it a dry run (the promotion PR's Promotable jobs): decide only, retag nothing"
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -27,9 +31,10 @@ runs:
       with:
         tool: cosign
 
-    - name: Retag testing to latest
+    - name: Retag testing to latest (or only check that it can be)
       shell: bash
       env:
         NAME: ${{ inputs.name }}
         DIR: ${{ inputs.dir }}
-      run: uv run --frozen --no-dev python -I .github/scripts/binaries_promote.py "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"
+        CHECK: ${{ inputs.check }}
+      run: uv run --frozen --no-dev python -I .github/scripts/binaries_promote.py ${CHECK} "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"

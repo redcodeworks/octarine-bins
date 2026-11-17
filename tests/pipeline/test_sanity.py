@@ -34,3 +34,7 @@ def test_a_copy_of_an_unlisted_path_is_found(tmp_path, monkeypatch):
                             "Justfile": "--build-context lib=src/lib \\\n --build-context installer=installer\n"})
     monkeypatch.chdir(tmp_path)
     assert sanity.input_problems() == ["dx/Containerfile copies 'dx/extra.txt', which is not in ci.inputs('dx'): a change to it would not rebuild the image"]
+
+
+def test_the_two_variant_lists_are_equal():
+    assert sanity.variant_problems() == []

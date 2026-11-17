@@ -8,6 +8,7 @@ rules:
       - action.yml
       - binaries.yml
       - bump-pins.yml
+      - promotable.yml
       - test.yml
   # bump-pins.yml pushes a branch with git (the bump pull request): the persisted checkout credential of the default GITHUB_TOKEN IS the mechanism (permissions
   # contents: write for this job only), there is no other credential in the workflow.
