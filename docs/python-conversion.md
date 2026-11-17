@@ -57,7 +57,14 @@ A maintainers' note, not user documentation. The original shell scripts are kept
 - A `git stash` of the working tree mid-task (restored at once, nothing lost) is a reminder: never stash while untracked scratch files matter.
 - Surprises: githubkit validates typed responses fully (fakes need captured answers), `gh.rest` weak reference, zero timedelta, `uv run --no-project` picked Python 3.15 until `.python-version` pinned 3.14.
 
+## What the first real run found
+- Two failures that the fake registry could not show (fixed in PR #24): after `skopeo copy` to `:testing`, `cosign verify` of the tag answered `image tag not found ... MANIFEST_UNKNOWN` (dx sign), and the config read of `image@digest` answered `manifest unknown` for a digest just taken from the `testing` tag (gx build, skip step).
+- Cause of both: GHCR read-after-write lag and inconsistent answers between requests, combined with a classification that treated "not found" as a definitive answer (`NotVerified`, `Absent`).
+- Both the shell and the Python versions had that same latent classification; the old shell passed mostly by timing. The conversion did not introduce the bug, it only made it visible once a run hit the window.
+- Lesson: a fake registry cannot show read-after-write lag or the real registry's messages. Test the classification with fakes that copy the real messages (lagging fakes: tag not found for the first N reads, no signatures found for the first N verifies), and treat "not found" on anything the registry just named or you just wrote as transient (retry it); only a real signature verdict is definitive.
+
 ## 10. Go / no-go checklist for the next repo
 - Go if: the scripts run on the runner (not in containers), there are fewer than about 25 of them, the callers are few and found by one grep, and there is a way to run the old and new on the same inputs (fakes or a dry-run mode).
 - Check first: inline shell in workflow YAML (it must move into scripts before it can be converted or tested), existing shell tests (they become the case table), network calls (what must be retried and what is definitive), secrets in the job (cache decision), whether a `bump`/PR flow exists (the expensive part).
 - If I did it again: decide the target design first (SDK direct, one retry decorator, typed records, fakes as files, uv layer) and port once; do the old-vs-new harness before the first script; keep the style pass as its own commit; keep the scratch podman storage outside tmpfs from the start.
+- Before declaring a conversion done, run it once on the real runner and registry (a draft PR is not enough) and keep the revert path (the archived shell scripts) until that run is green.
