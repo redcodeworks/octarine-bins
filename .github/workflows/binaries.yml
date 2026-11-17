@@ -89,7 +89,8 @@ jobs:
     name: Sign the ${{ matrix.label }}binaries image and move testing
     needs: build
     # runs although another variant's build failed (each variant stands alone); this variant's own failed build leaves no artifact and fails the download below
-    if: ${{ !cancelled() && github.ref != 'refs/heads/main' }}
+    # only testing signs: the `signing` environment admits only main and testing, and main builds nothing (a branch ref publishes nothing, so it does not sign either)
+    if: ${{ !cancelled() && github.ref == 'refs/heads/testing' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment: signing
@@ -115,9 +116,7 @@ jobs:
         id: built
         run: jq -r 'to_entries[] | "\(.key)=\(.value)"' published.json | tee -a "${GITHUB_OUTPUT}"
 
-      # a branch ref publishes nothing (published=false): no signing
       - name: Sign, then move testing
-        if: steps.built.outputs.published == 'true'
         uses: ./.github/actions/sign-image
         with:
           image: ${{ steps.built.outputs.image }}
