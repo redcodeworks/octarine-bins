@@ -1,14 +1,9 @@
-"""The build skip and the promotion, with real git repositories, a fake registry (a directory of tags) and fake skopeo and cosign.
-
-The registry state is what push_image.py leaves: `testing` is the digest of the last signed build, and the tag ci.inputs_tag(dir) of the inputs of every build points at its digest.
-"""
+"""The build skip and the promotion, with real git repositories, a fake registry (a directory of tags) and fake skopeo and cosign."""
 import hashlib
-import os
 from pathlib import Path
 
 import pytest
 
-import ci
 from conftest import git, script
 
 IMG = "ghcr.io/redcodeworks/octarine-bins"
@@ -20,9 +15,11 @@ def repo(tmp_path):
     r = tmp_path / "repo"
     r.mkdir()
     git(r, "init", "-q")
-    files = {"src/f": "one", "src/lib/x": "l1", "src/builder.env": "b", "dx/f": "d1", "installer/install.sh": "i1", ".github/actions/build-image/action.yml": "ba", "README": "doc",
-             ".github/workflows/binaries.yml": "wf", ".github/workflows/binaries-dx.yml": "wf", ".github/workflows/test.yml": "t", ".github/scripts/push_image.py": "p",
-             ".github/scripts/binaries_layout.py": "l", "Justfile": "j"}
+    files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/builder.env": "b", "installer/install.sh": "i1",
+             "dx/Containerfile": "dc", "dx/components.tsv": "dt", "dx/packages/required-fedora.txt": "dp", "dx/README.md": "doc",
+             "gx/Containerfile": "gc", "gx/components.tsv": "gt", "gx/packages/required-fedora.txt": "gp", "gx/README.md": "doc",
+             "README.md": "doc", "Justfile": "j", "tests/t.py": "t", ".github/workflows/binaries.yml": "wf", ".github/workflows/binaries-dx.yml": "wf",
+             ".github/actions/build-image/action.yml": "ba", ".github/scripts/push_image.py": "p", ".github/scripts/binaries_layout.py": "l"}
     for name, content in files.items():
         (r / name).parent.mkdir(parents=True, exist_ok=True)
         (r / name).write_text(content)
@@ -36,77 +33,50 @@ def change(r, name, content):
     git(r, "commit", "-q", "-am", f"change {name}")
 
 
-def inputs_tag(r, directory, commit="HEAD"):
-    cwd = os.getcwd()
-    os.chdir(r)
-    try:
-        return ci.inputs_tag(directory, commit)
-    finally:
-        os.chdir(cwd)
-
-
-def built(r, state, manifest="tested", directories=("src", "dx")):
-    """What the push step records for the inputs of HEAD: the inputs tag of each image names the manifest."""
-    for d in directories:
-        (state / inputs_tag(r, d)).write_text(manifest)
-
-
 def skip(repo_path, rev, directory="src", **extra):
     out = repo_path.parent / "gho"
     out.write_text("")
-    p = script("binaries_skip.py", IMG, directory, cwd=repo_path, extra={"GITHUB_OUTPUT": str(out), **extra})
+    p = script("binaries_skip.py", IMG, directory, cwd=repo_path, extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra})
     return p, out.read_text().strip()
 
 
 @pytest.fixture
-def tested(fakes, repo):
-    """testing is the build of the first commit's inputs."""
-    state = Path(fakes["STATE"])
-    (state / "testing").write_text("tested")
-    built(repo[0], state)
+def tested(fakes):
+    Path(fakes["STATE"], "testing").write_text("tested")
 
 
-@pytest.mark.parametrize("edit,directory,expected", [
-    (None, "src", "skip=true"),
-    ("README", "src", "skip=true"),                      # docs: no rebuild
-    (".github/workflows/test.yml", "src", "skip=true"),  # another workflow: no rebuild
-    ("src/f", "src", "skip=false"),
-    ("Justfile", "src", "skip=false"),                   # the build arguments
-    ("src/f", "dx", "skip=true"),                        # only the base image's own files
-    ("src/lib/x", "dx", "skip=false"),                   # shared helpers
-    ("src/lib/x", "src", "skip=false"),
-    ("dx/f", "src", "skip=true"),
-    ("dx/f", "dx", "skip=false"),
-    ("installer/install.sh", "dx", "skip=false"),        # every image carries the installer
-    ("installer/install.sh", "src", "skip=false"),
-])
-def test_skip_rule_per_image(fakes, tested, repo, edit, directory, expected):
+# (edit, image directory, the image's content unchanged?): one table for the build skip and the promotion guard
+RULES = [
+    (None, "src", True),
+    # tooling and docs: no image content, whatever the image
+    ("Justfile", "src", True), ("Justfile", "dx", True),
+    (".github/workflows/binaries.yml", "src", True), (".github/workflows/binaries-dx.yml", "dx", True),
+    (".github/actions/build-image/action.yml", "gx", True), (".github/scripts/push_image.py", "src", True), (".github/scripts/binaries_layout.py", "dx", True),
+    ("tests/t.py", "src", True), ("README.md", "src", True), ("dx/README.md", "dx", True), ("gx/README.md", "gx", True),
+    # content: the base
+    ("src/f", "src", False), ("src/Containerfile", "src", False), ("src/lib/stage.sh", "src", False), ("src/lib/assemble.sh", "src", False),
+    ("src/builder.env", "src", False), ("installer/install.sh", "src", False), ("dx/packages/required-fedora.txt", "src", True),
+    # content: dx reads only its own files, assemble.sh, the builder pin and the installer
+    ("dx/packages/required-fedora.txt", "dx", False), ("dx/Containerfile", "dx", False), ("dx/components.tsv", "dx", False),
+    ("src/lib/assemble.sh", "dx", False), ("src/builder.env", "dx", False), ("installer/install.sh", "dx", False),
+    ("src/f", "dx", True), ("src/lib/stage.sh", "dx", True), ("gx/packages/required-fedora.txt", "dx", True),
+    ("gx/packages/required-fedora.txt", "gx", False), ("dx/packages/required-fedora.txt", "gx", True), ("installer/install.sh", "gx", False),
+]
+
+
+@pytest.mark.parametrize("edit,directory,unchanged", RULES)
+def test_skip_rule_per_image(fakes, tested, repo, edit, directory, unchanged):
     r, rev = repo
     if edit:
         change(r, edit, "changed")
     p, out = skip(r, rev, directory)
-    assert p.returncode == 0 and out == expected, p.stderr
+    assert p.returncode == 0 and out == f"skip={str(unchanged).lower()}", p.stderr
 
 
 def test_skip_false_when_testing_does_not_verify(fakes, tested, repo):
     r, rev = repo
     p, out = skip(r, rev, COSIGN_MODE="nosig")
     assert p.returncode == 0 and out == "skip=false"
-
-
-def test_tooling_only_change_builds_once_and_then_skips_although_the_digest_did_not_move(fakes, tested, repo):
-    """The loop this guards against: a Justfile change rebuilds to the SAME digest, and every later push of those inputs must skip, not rebuild forever."""
-    r, rev = repo
-    change(r, "Justfile", "new tooling")
-    assert skip(r, rev)[1] == "skip=false"
-    built(r, Path(fakes["STATE"]))  # the push step: the new inputs tag names the (unchanged) digest of testing
-    assert skip(r, rev)[1] == "skip=true"
-
-
-def test_skip_false_when_the_inputs_gave_another_digest_than_testing(fakes, tested, repo):
-    r, rev = repo
-    built(r, Path(fakes["STATE"]), manifest="older build")  # the push finished, signing or the move of testing did not
-    assert skip(r, rev)[1] == "skip=false"
 
 
 def test_skip_false_when_there_is_no_testing_image_yet(fakes, repo):
@@ -123,18 +93,17 @@ def test_skip_fails_instead_of_guessing_when_the_registry_is_down(fakes, tested,
 
 @pytest.fixture
 def promoted(fakes, repo):
-    """testing = the build of the first commit's inputs; HEAD is a merge commit with the same files."""
+    """testing = the first commit's build; HEAD is a merge commit with the same trees."""
     r, rev = repo
-    git(r, "commit", "-q", "--amend", "-m", "merge commit, same files")
+    git(r, "commit", "-q", "--amend", "-m", "merge commit, same trees")
     Path(fakes["STATE"], "testing").write_text("tested")
-    built(r, Path(fakes["STATE"]))
     return r, rev, Path(fakes["STATE"]), Path(fakes["LOG"])
 
 
 def promote(r, rev, directory="src", **extra):
     out = r.parent / "pgho"
     out.write_text("")
-    p = script("binaries_promote.py", IMG, directory, cwd=r, extra={"GITHUB_OUTPUT": str(out), **extra})
+    p = script("binaries_promote.py", IMG, directory, cwd=r, extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra})
     return p, out.read_text().split()
 
 
@@ -179,27 +148,56 @@ def test_promote_without_a_testing_image_fails(promoted):
     assert p.returncode == 1 and "build on testing first" in p.stderr and copies(log) == 0
 
 
-@pytest.mark.parametrize("edit,directory,passes", [
-    ("README", "src", True),             # docs only
-    ("src/f", "src", False),             # testing was built from other inputs
-    ("Justfile", "src", False),          # the tooling is an input too: it must have been built on testing first
-    ("src/f", "dx", True),               # dx does not read src/ itself
-    ("src/lib/x", "dx", False),          # but it reads the shared helpers
-    ("src/lib/x", "src", False),
-    ("dx/f", "src", True),
-    ("installer/install.sh", "dx", False),
-])
-def test_promote_compares_the_inputs_of_the_image(promoted, edit, directory, passes):
+@pytest.mark.parametrize("edit,directory,unchanged", RULES)
+def test_promote_compares_the_content_of_the_image(promoted, edit, directory, unchanged):
     r, rev, state, log = promoted
-    change(r, edit, "changed")
+    if edit:
+        change(r, edit, "changed")
     p, _ = promote(r, rev, directory)
-    if passes:
+    if unchanged:
         assert p.returncode == 0, p.stderr
     else:
         assert p.returncode == 1 and "testing moved on" in p.stderr and copies(log) == 0
 
 
-def test_promote_survives_registry_lag_on_cosign(promoted, tmp_path):
+def test_the_revision_label_follows_the_last_content_change(fakes, tested, repo):
+    """A content change builds (label = that commit); tooling changes after it skip and still promote; without the new label a content change never skips or promotes."""
+    r, rev = repo
+    change(r, "dx/packages/required-fedora.txt", "new list")
+    built = git(r, "rev-parse", "HEAD")
+    assert skip(r, rev, "dx")[1] == "skip=false"                  # the old label names a commit with other content: build
+    assert skip(r, built, "dx")[1] == "skip=true"                 # the build stamps the label with this commit
+    change(r, "Justfile", "tooling")
+    change(r, "dx/README.md", "docs")
+    assert skip(r, built, "dx")[1] == "skip=true"                 # tooling and docs: the label stays at the content commit and still matches
+    assert promote(r, built, "dx")[0].returncode == 0
+    assert promote(r, rev, "dx")[0].returncode == 1               # a stale label (the image of the previous content) is refused
+
+
+def test_promote_prints_the_real_error_of_a_failed_verification(promoted):
     r, rev, state, log = promoted
-    p, out = promote(r, rev, LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
+    p, _ = promote(r, rev, COSIGN_MODE="down")
+    assert p.returncode == 1 and "read error, not a bad signature" in p.stderr and "not signed with cosign.pub" not in p.stderr and copies(log) == 0
+
+
+def test_push_image_does_not_overwrite_an_existing_dated_tag(fakes):
+    """The fake registry already has the tag; there is no fake podman, so a push attempt would fail: the script must keep the existing digest and not push."""
+    Path(fakes["STATE"], "20261117-abcdef0").write_text("first build")
+    out = Path(fakes["STATE"]).parent / "gho"
+    out.write_text("")
+    p = script("push_image.py", "local:tag", IMG, "20261117-abcdef0", extra={"GITHUB_OUTPUT": str(out)})
+    assert p.returncode == 0 and "not overwriting" in p.stderr, p.stderr
+    assert out.read_text().strip() == f"digests=sha256:{hashlib.sha256(b'first build').hexdigest()}"
+    assert "podman" not in Path(fakes["LOG"]).read_text()
+
+
+def test_skip_decides_although_the_registry_lags_on_the_digest_read(fakes, tested, repo, tmp_path):
+    r, rev = repo
+    p, out = skip(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"))
+    assert p.returncode == 0 and out == "skip=true", p.stderr
+
+
+def test_promote_survives_registry_lag_on_the_digest_read_and_on_cosign(promoted, tmp_path):
+    r, rev, state, log = promoted
+    p, out = promote(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"), LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
     assert p.returncode == 0 and "changed=true" in out, p.stderr
