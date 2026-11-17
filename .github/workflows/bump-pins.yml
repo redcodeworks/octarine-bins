@@ -1,9 +1,9 @@
 name: Bump pins
 # ONE weekly workflow for every external pin that is bumped automatically (scx, extest, Ghostty with its Zig pin, and the Fedora builder digest): ONE pull request PER PIN,
-# each independent (branch bump/<pin>, cut from `testing`, one commit, only that pin's lines changed), so the owner merges any subset in any order and closes the rest. At most
-# one open PR per pin: a newer upstream value updates it, a pin that needs no bump any more closes it. Nothing is built or published here. Monday 07:00 UTC; scheduled
+# each independent (branch bump/<pin>-YYYYMMDD, cut from `testing`, one commit, only that pin's lines changed), so the owner merges any subset in any order and closes the rest. At most
+# one open PR per pin: a newer upstream value REPLACES it (a new branch and PR first, then the old one is closed with a pointer to it; no force-push is ever used), an open PR with the same value stays, a pin that needs no bump any more closes it. Nothing is built or published here. Monday 07:00 UTC; scheduled
 # workflows run only from the default branch, so the schedule starts after the first promotion of this file into `main`; workflow_dispatch works from any branch that has
-# the file (`gh workflow run bump-pins.yml --ref testing`; with `-f dry_run=true` it prints the pull requests it would open, update or close, one per pin, and pushes and
+# the file (`gh workflow run bump-pins.yml --ref testing`; with `-f dry_run=true` it prints the pull requests it would open, keep or close, one per pin, and pushes and
 # creates nothing, and may be dispatched from any branch to try its scripts).
 #
 # One job, one script (.github/scripts/bump-weekly.sh): every pin goes through bump-run.sh (the decision scripts per kind and the pin writers). A failing pin (an upstream that
@@ -35,7 +35,7 @@ jobs:
   bump:
     name: Bump the pins
     runs-on: ubuntu-26.04
-    timeout-minutes: 40
+    timeout-minutes: 60  # bump-checks.sh waits for one test run per PR, one after another
     permissions:
       contents: write
       pull-requests: write

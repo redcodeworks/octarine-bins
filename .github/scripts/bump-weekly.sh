@@ -1,91 +1,92 @@
 #!/usr/bin/env bash
-# The weekly pin bump: ONE pull request PER PIN, each independent. Every pin (scx, extest, ghostty with its Zig pin, builder) goes through bump-run.sh on a checkout of
-# current testing; a pin that moved becomes ONE commit on its own branch bump/<pin>, cut from testing (not from another bump), with its own pull request into testing. The
-# pins live in different files, so the pull requests never conflict: merge any subset in any order, close the rest. Per pin:
-#   - nothing moved, no open bump PR: nothing happens;
-#   - nothing moved, a bump PR is open (testing has the value now, or upstream went back): that PR is closed with a comment and its branch deleted;
-#   - moved, no open PR: the branch is pushed and the PR opened;
-#   - moved, a PR is open: the branch is rewritten from current testing (a forced push of this bot's own bump branch, guarded by --force-with-lease) and the PR's title and
-#     body are updated; when the branch already holds the same tree, nothing is touched.
-#   Each PR's checks are reported by bump-checks.sh (keyed by the commit, so parallel PRs do not collide). A failing pin (upstream unreachable) changes nothing for that pin,
-#   leaves its open PR alone and turns the run red; the other pins still go in.
-# DRY_RUN=1 (a manual run with dry_run on) does every decision and commit locally and prints what it would do (open, update, close), pushing and creating nothing.
-# A real run needs HEAD to be origin/testing (the workflow checks testing out); a dry run starts from the checked-out ref. Needs git, gh with GH_TOKEN, GITHUB_REPOSITORY;
-# BUMP_BASE (testing) and BUMP_PINS (a subset) for the tests and by hand.
+# The weekly pin bump: ONE INDEPENDENT pull request into testing PER PIN that moved (so any subset can be merged in any order and the rest closed). Every pin starts from current testing on its own branch bump/<pin>-YYYYMMDD with ONE commit (the pin change, made by bump-run.sh), so
+# the PRs are not a chain and touch different pin lines. Rules:
+#   - the pin already equals upstream (testing has it): nothing is opened; an open bump PR of that pin is closed with a comment (stale);
+#   - an open bump PR of the pin already carries the value upstream has now: it stays as it is, nothing new (idempotent reruns);
+#   - an open bump PR of the pin carries an OLDER value (upstream moved again): a new branch (bump/<pin>-YYYYMMDD-2 ...: a new name, no force-push is ever used)
+#     and a new PR are made, and the older one is closed with a comment pointing at the new one, so at most one bump PR per pin stays open;
+#   - a failing pin changes nothing, turns the run red and does not stop the other pins.
+# Every new PR gets the required `test` and `secrets` check runs from bump-checks.sh (keyed by its commit sha, so parallel PRs do not collide).
+# DRY_RUN=1 (a manual run with dry_run on) does every decision locally and prints what it would open, keep or close, pushing and opening nothing.
+# A real run needs HEAD to be origin/testing (the workflow checks testing out). Needs git, gh with GH_TOKEN, GITHUB_REPOSITORY; BUMP_BASE (testing) for the tests.
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "${REPO_ROOT:-${here}/../..}" || exit 1
 base="${BUMP_BASE:-testing}"
-read -ra pins <<<"${BUMP_PINS:-scx extest ghostty builder}"
+read -ra pins <<<"${BUMP_PINS:-scx extest ghostty builder}"  # BUMP_PINS: a subset, by hand or for the tests
 summary() { echo "$*"; [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "$*" >> "${GITHUB_STEP_SUMMARY}" || true; }
-dry=${DRY_RUN:-}
 
 git fetch -q origin "${base}" || { echo "::error::cannot fetch ${base}"; exit 1; }
-git fetch -q origin '+refs/heads/bump/*:refs/remotes/origin/bump/*' 2> /dev/null || true  # the bump branches of earlier runs, if any
-if [[ -z "${dry}" && "$(git rev-parse HEAD)" != "$(git rev-parse "origin/${base}")" ]]; then
+start=$(git rev-parse HEAD)
+if [[ -z "${DRY_RUN:-}" && "${start}" != "$(git rev-parse "origin/${base}")" ]]; then
     echo "::error::a real run must start from origin/${base} (this checkout is not it); use dry_run to try another ref"; exit 1
 fi
-start=$(git rev-parse HEAD)
-
+day=$(date -u +%Y%m%d)
 summary "## Pin bumps"
 failed=0
-note_for() { # pin -> what the owner should know about that kind of bump
-    case "$1" in
-        scx) echo "Check the scheduler READMEs when scx moves." ;;
-        builder) echo "A builder bump changes the \`FROM\` of every stage: every component rebuilds once, with no layer cache hit." ;;
-        ghostty) echo "Zig moves only inside this commit (a Ghostty tag needs its Zig minor), never on its own." ;;
-        *) echo "" ;;
-    esac
+
+open_prs() { # <pin>: "<number> <branch>" of every open PR into the base whose branch is bump/<pin>-...
+    gh pr list --base "${base}" --state open --json number,headRefName 2> /dev/null \
+        | jq -r --arg p "bump/$1-" '.[]|select(.headRefName|startswith($p))|"\(.number) \(.headRefName)"' 2> /dev/null || true
 }
-open_pr() { gh pr list --base "${base}" --head "$1" --state open --json number --jq '.[0].number // empty' 2> /dev/null; }
+row_of() { git log -1 --format=%b "$1" | sed -n 1p; } # the pin row of a commit: pin | from | to | what changed upstream | days
+to_of() { local r; r=$(row_of "$1"); r=${r#*| }; r=${r#*| }; echo "${r%% |*}"; } # the `to` field
+close_pr() { # <number> <comment>
+    gh pr close "$1" --delete-branch --comment "$2" || echo "::warning::could not close #$1"
+}
 
 for p in "${pins[@]}"; do
-    branch="bump/${p}"
     git checkout -q --detach "${start}" || { failed=1; continue; }
-    "${here}/bump-run.sh" "${p}" || { failed=1; continue; }   # a failed pin: its open PR stays as it is
-    existing=$(open_pr "${branch}")
-    if [[ "$(git rev-parse HEAD)" == "${start}" ]]; then
-        if [[ -z "${existing}" ]]; then continue; fi
-        if [[ -n "${dry}" ]]; then summary "Dry run: would close #${existing} (${p} needs no bump any more)"; continue; fi
-        gh pr close "${existing}" --delete-branch --comment "Nothing to bump for ${p} any more (testing has the value, or upstream is at it): closing." || echo "::warning::could not close #${existing}"
-        summary "\`${p}\`: closed #${existing}, nothing to bump any more"
+    branch="bump/${p}-${day}"; n=1
+    while [[ -z "${DRY_RUN:-}" ]] && git ls-remote --exit-code --heads origin "${branch}" > /dev/null 2>&1; do n=$((n + 1)); branch="bump/${p}-${day}-${n}"; done
+    git checkout -q -B "${branch}" || { failed=1; continue; }
+    "${here}/bump-run.sh" "${p}" || { failed=1; continue; }
+    mapfile -t pending < <(open_prs "${p}")
+    if [[ -z "$(git rev-list "${start}..HEAD")" ]]; then
+        for pr in ${pending[@]+"${pending[@]}"}; do
+            if [[ -n "${DRY_RUN:-}" ]]; then summary "Dry run: would close #${pr%% *} (${p}: testing already has the upstream value)"
+            else close_pr "${pr%% *}" "Closing: \`${p}\` already equals upstream on \`${base}\`, so this bump is not needed any more."; fi
+        done
         continue
     fi
-    sha=$(git rev-parse HEAD)
-    row=$(git log -1 --format=%b "${sha}" | sed -n 1p)
-    title="$(git log -1 --format=%s "${sha}")"; title=${title:0:140}
-    body="One pin, one commit: ${row%% |*}. This pull request is independent of the other bump pull requests (they change other files): merge it, or close it, on its own.
+    c=$(git rev-parse HEAD); row=$(row_of "${c}"); to=$(to_of "${c}")
+    [[ "${row}" == *" | "* ]] || { echo "::error::${p}: the bump commit has no table row"; failed=1; continue; }
+    keep=""
+    for pr in ${pending[@]+"${pending[@]}"}; do
+        git fetch -q origin "${pr#* }" 2> /dev/null && [[ "$(to_of FETCH_HEAD)" == "${to}" ]] && keep=${pr%% *}
+    done
+    if [[ -n "${keep}" ]]; then summary "\`${p}\`: #${keep} already proposes ${to}; nothing new"; continue; fi
+    title="Bump ${p}: $(cut -d'|' -f2,3 <<<"${row}" | sed 's/ | / to /; s/^ *//; s/ *$//')"; title=${title:0:140}
+    case "${p}" in
+        scx) note=" Check the scheduler READMEs when scx moves." ;;
+        builder) note=" A builder bump changes the \`FROM\` of every stage: every component rebuilds once, with no layer cache hit." ;;
+        ghostty) note=" Zig moves only inside this commit (a Ghostty tag needs its Zig minor), never on its own." ;;
+        *) note="" ;;
+    esac
+    body="One commit, one pin; this pull request is independent of the other bump pull requests (merge any subset, in any order, and close the rest).
 
 | pin | from | to | what changed upstream | days the new value has existed |
 |---|---|---|---|---|
 | ${row} |
 
-Verified: the decision script compared the pin with upstream and the pin writer changed only the pin files; \`test\` and \`secrets\` run on this commit. Not verified: nothing was built or booted here; the build on \`${base}\` after the merge is the first build with this pin. $(note_for "${p}") The owner merges this pull request.
+Only the pin lines change.${note} Verified: the decision script compared the pin with upstream and the writer changed only the pin files. Not verified: nothing was built or booted by the bump; the build on \`${base}\` after the merge is the first build with this pin. The owner merges this pull request.
 
-Checks: this commit is tested by the \`Test\` workflow (dispatched on \`${base}\` for it, because a pull request opened with the workflow token starts no workflow itself) and its \`test\` and \`secrets\` results are reported here as check runs. If they are missing, run the bump workflow again (\`gh workflow run bump-pins.yml --ref ${base}\`): it updates this pull request.
+Checks: this commit is tested by the \`Test\` workflow (dispatched on \`${base}\` for it, because a pull request opened with the workflow token starts no workflow itself) and its \`test\` and \`secrets\` results are reported here as check runs. If they are missing, run the bump workflow again (\`gh workflow run bump-pins.yml --ref ${base}\`): it makes a new branch and pull request and closes this one.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
-    if [[ -n "${dry}" ]]; then
-        action="open a PR"; [[ -z "${existing}" ]] || action="update #${existing}"
-        summary "Dry run: would ${action} for ${p} on branch ${branch}: ${title}"
+    if [[ -n "${DRY_RUN:-}" ]]; then
+        summary "Dry run: would open ${branch} (${c:0:7}), title: ${title}"
+        for pr in ${pending[@]+"${pending[@]}"}; do summary "Dry run: would close the older #${pr%% *} (${pr#* }), superseded"; done
         summary "${body}"
         continue
     fi
-    remote_tip=$(git rev-parse -q --verify "refs/remotes/origin/${branch}" || true)
-    if [[ -n "${existing}" && -n "${remote_tip}" && "$(git rev-parse "${sha}^{tree}")" == "$(git rev-parse "${remote_tip}^{tree}")" ]]; then
-        summary "\`${p}\`: #${existing} is up to date"
-        "${here}/bump-checks.sh" "${branch}" "${remote_tip}" || true
-        continue
-    fi
-    git push -q --force-with-lease="refs/heads/${branch}:${remote_tip}" origin "${sha}:refs/heads/${branch}" || { echo "::error::cannot push ${branch}"; failed=1; continue; }
-    if [[ -n "${existing}" ]]; then
-        gh pr edit "${existing}" --title "${title}" --body "${body}" || { echo "::error::could not update #${existing}"; failed=1; continue; }
-        summary "\`${p}\`: updated #${existing} (${title})"
-    elif url=$(gh pr create --base "${base}" --head "${branch}" --title "${title}" --body "${body}"); then
-        summary "\`${p}\`: opened ${url}"
-    else
+    git push -q origin "refs/heads/${branch}:refs/heads/${branch}" || { echo "::error::cannot push ${branch}"; failed=1; continue; }
+    if ! url=$(gh pr create --base "${base}" --head "${branch}" --title "${title}" --body "${body}"); then
         echo "::error::Could not open the pull request for ${p}. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?"; failed=1; continue
     fi
-    "${here}/bump-checks.sh" "${branch}" "${sha}" || true
+    summary "\`${p}\`: opened ${url}"
+    for pr in ${pending[@]+"${pending[@]}"}; do close_pr "${pr%% *}" "Superseded by ${url}: upstream moved again, so \`${p}\` has a newer bump pull request."; done
+    "${here}/bump-checks.sh" "${branch}" "${c}" || true
 done
+git checkout -q --detach "${start}" 2> /dev/null || true
 exit "${failed}"

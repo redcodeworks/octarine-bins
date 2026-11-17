@@ -1,0 +1,32 @@
+name: Promote a tested binaries image
+description: >-
+  The promote steps shared by the three images, run inside the caller's `promote` job on main: retag the tested, signed `testing` image to `latest` (binaries-promote.sh,
+  no rebuild). The caller checks out the repository first.
+inputs:
+  name:
+    description: Image name under ghcr.io/<owner>/ (octarine-bins, octarine-bins-dx or octarine-bins-gx)
+    required: true
+  dir:
+    description: Build directory of the image (src, dx or gx): the trees promote compares
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Set up cosign
+      uses: ./.github/actions/setup-tool
+      with:
+        tool: cosign
+
+    - name: Retag testing to latest
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.dir }}
+      run: .github/scripts/binaries-promote.sh "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"
