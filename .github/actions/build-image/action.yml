@@ -119,4 +119,4 @@ runs:
         NAME: ${{ inputs.name }}
         IMAGE: ${{ steps.names.outputs.image }}
         VERSION: ${{ steps.names.outputs.version }}
-      run: uv run --frozen --no-dev python -I .github/scripts/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
+      run: uv run --frozen --no-dev python -I .github/scripts/20-build/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
