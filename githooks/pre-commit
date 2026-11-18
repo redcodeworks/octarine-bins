@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
-# Opt-in (`just hooks`): format the staged Python files with the locked ruff and stage the result.
+# Opt-in (`just hooks`): format the staged Python files (ruff) and shell files (shfmt), both with their defaults, and stage the result.
 set -euo pipefail
 
 # Added, copied, modified or renamed files only (a deleted file has nothing to format).
-mapfile -d '' files < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
-[[ ${#files[@]} -gt 0 ]] || exit 0
+staged() {
+	git diff --cached --name-only --diff-filter=ACMR -z -- "$@"
+}
 
-uv run --frozen ruff format -- "${files[@]}"
-git add -- "${files[@]}"
+mapfile -d '' python < <(staged '*.py')
+if [[ ${#python[@]} -gt 0 ]]; then
+	uv run --frozen ruff format -- "${python[@]}"
+	git add -- "${python[@]}"
+fi
+
+# .archive/shell-ci holds the frozen shell originals (the revert path): never reformatted.
+mapfile -d '' candidates < <(staged ':(exclude).archive/shell-ci')
+[[ ${#candidates[@]} -gt 0 ]] || exit 0
+if ! command -v shfmt >/dev/null; then
+	echo "pre-commit: shfmt not found, shell files not formatted" >&2
+	exit 0
+fi
+# shfmt -f keeps the files it recognizes as shell (extension or shebang).
+mapfile -t shell < <(shfmt -f "${candidates[@]}")
+if [[ ${#shell[@]} -gt 0 ]]; then
+	shfmt -w "${shell[@]}"
+	git add -- "${shell[@]}"
+fi
