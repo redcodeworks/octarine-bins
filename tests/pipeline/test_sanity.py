@@ -34,7 +34,3 @@ def test_a_copy_of_an_unlisted_path_is_found(tmp_path, monkeypatch):
                             "Justfile": "--build-context extra=tools\n"})
     monkeypatch.chdir(tmp_path)
     assert sanity.input_problems() == ["src/Containerfile copies 'tools/extra.txt', which is not in ci.inputs('src'): a change to it would not rebuild the image"]
-
-
-def test_the_two_variant_lists_are_equal():
-    assert sanity.variant_problems() == []

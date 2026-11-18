@@ -93,7 +93,7 @@ def test_sign_image_stops_before_moving_testing_when_the_signature_does_not_veri
 
 
 def test_a_tag_that_cosign_cannot_see_yet_is_a_read_error_never_not_verified(fakes, monkeypatch):
-    """The real failure of the dx sign job: right after the copy, cosign said 'image tag not found ... MANIFEST_UNKNOWN' (registry lag). That is not a signature verdict."""
+    """A real failure of a sign job: right after the copy, cosign said 'image tag not found ... MANIFEST_UNKNOWN' (registry lag). That is not a signature verdict."""
     monkeypatch.setenv("LAG_FILE", fakes["LOG"] + ".lag")
     monkeypatch.setenv("COSIGN_LAG", "99")
     with pytest.raises(registry.ReadError, match="MANIFEST_UNKNOWN"):
@@ -119,7 +119,7 @@ def test_a_signature_written_a_moment_ago_may_take_a_few_tries_but_a_wrong_one_s
 
 
 def test_a_digest_the_registry_just_named_is_retried_when_it_answers_unknown(fakes, monkeypatch):
-    """The real failure of the gx build: reading the config of image@digest answered manifest unknown for a digest that was just taken from the tag."""
+    """A real failure of a build: reading the config of image@digest answered manifest unknown for a digest that was just taken from the tag."""
     monkeypatch.setenv("DIGEST_LAG_FILE", fakes["LOG"] + ".dlag")
     monkeypatch.setenv("DIGEST_LAG", "2")
     assert b"revision" in registry.read_by_digest("config", "ghcr.io/o/i", "sha256:" + "a" * 64)

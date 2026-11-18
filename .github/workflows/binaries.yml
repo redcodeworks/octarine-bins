@@ -1,26 +1,22 @@
-name: Binaries images
-# Builds, signs and promotes the THREE images of octarine-bins: ghcr.io/redcodeworks/octarine-bins (src/, the base, every octarine-os variant), octarine-bins-dx (dx/) and
-# octarine-bins-gx (gx/). One run per push; `build`, `sign` and `promote` are each a matrix over the variants, and the matrix below is the ONLY list of them: a new variant
-# is one line (name, dir, label, cache) plus its directory. The steps live once in the shared composite actions (.github/actions/build-image, sign-image, promote-image).
-# The variants are independent: each skips on its own unchanged content and one failing build never stops another variant from being signed. The job names are the
-# required checks of the rulesets (`Build the binaries image`, `Build the dx binaries image`, ...), built from `label`; do not rename them.
+name: Binaries image
+# Builds, signs and promotes the ONE image of octarine-bins: ghcr.io/redcodeworks/octarine-bins (src/): the sched_ext schedulers, extest and Ghostty that every octarine-os variant
+# installs. The steps live once in the composite actions (.github/actions/build-image, sign-image, promote-image). The job names are required checks of the rulesets
+# (`Build the binaries image`, `Sign the binaries image and move testing`, `Promote the tested binaries image`); do not rename them.
 #
-# ONE build per image: <dir>/Containerfile (src/ is multi-stage, a stage per component in src/components.tsv: scx, extest and ghostty, all required); a component that cannot
-# be built fails the whole build of that image, nothing is pushed and its `testing` stays where it was (atomic). octarine-os reads `latest` of its images; only `promote` moves it.
+# ONE build: src/Containerfile (multi-stage, a stage per component in src/components.tsv: scx, extest and ghostty, all required); a component that cannot be built fails the whole
+# build, nothing is pushed and `testing` stays where it was (atomic). octarine-os reads `latest`; only `promote` moves it.
 #
-# On testing (every push, or a dispatch): `build` builds the image, checks its layout and pushes it under an immutable version tag (<date>-<short sha>) and leaves a
-# small artifact `published-<dir>` (the values below); `sign` downloads ITS variant's artifact, signs that digest and only THEN moves `testing` to it, so nobody ever sees
-# an unsigned `testing`. A missing artifact means that variant's build failed, so its `sign` job fails (red) instead of passing for a build that did not happen. A push whose
-# build inputs (ci.inputs(dir)) equal those of the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries_skip.py): both jobs
-# still run and succeed, their steps are skipped (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The base build reads and
-# (on testing) writes a layer cache in the separate package octarine-bins-cache (dx and gx build without one); the cache only saves time, the layout check and the signature decide what is published.
-# `sign` waits for every build (the slowest is the base with Ghostty), so dx and gx move `testing` later than the base builds.
+# On testing (every push, or a dispatch): `build` builds the image, checks its layout and pushes it under an immutable version tag (<date>-<short sha>); `sign` signs that digest and
+# only THEN moves `testing` to it, so nobody ever sees an unsigned `testing`. If `build` fails, `sign` does not run and the run is red. A push whose build inputs (ci.inputs('src'))
+# equal those of the commit the current `testing` image was built from, with a verifying image, builds nothing (binaries_skip.py): both jobs still run and succeed, their steps are
+# skipped (the ruleset needs the job names to report, so there is no `paths:` filter). A dispatch always builds. The build reads and (on testing) writes a layer cache in the separate
+# package octarine-bins-cache; the cache only saves time, the layout check and the signature decide what is published.
 #
-# On main (the promotion of testing into main, or a dispatch): `promote` retags each tested, signed `testing` image to `latest` (binaries_promote.py; no rebuild). It fails
-# unless `testing` exists and verifies with cosign.pub. Main builds nothing: it promotes the images that were built, signed and approved on testing.
+# On main (the promotion of testing into main, or a dispatch): `promote` retags the tested, signed `testing` image to `latest` (binaries_promote.py; no rebuild). It fails unless
+# `testing` exists and verifies with cosign.pub. Main builds nothing: it promotes the image that was built, signed and approved on testing.
 #
-# Any other ref (a dispatch from a branch) builds for validation only and publishes nothing. To rebuild by hand: `gh workflow run binaries.yml --ref testing`; to promote
-# by hand: `--ref main` (all variants).
+# Any other ref (a dispatch from a branch) builds for validation only and publishes nothing. To rebuild by hand: `gh workflow run binaries.yml --ref testing`; to promote by hand:
+# `--ref main`.
 on:
   push:
     branches:
@@ -37,21 +33,19 @@ permissions: {}
 
 jobs:
   build:
-    name: Build the ${{ matrix.label }}binaries image
+    name: Build the binaries image
     if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      # THE list of variants (the other two jobs reuse it): image name, directory, the label in the job names ("" for the base) and whether the build uses the layer cache (the base only)
-      matrix: &variants
-        include:
-          - {name: octarine-bins, dir: src, label: "", cache: true}
-          - {name: octarine-bins-dx, dir: dx, label: "dx ", cache: false}
-          - {name: octarine-bins-gx, dir: gx, label: "gx ", cache: false}
+    # what `sign` needs: the image, the version tag, the pushed digest, and whether nothing was built (see the build-image action)
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      version: ${{ steps.image.outputs.version }}
+      skipped: ${{ steps.image.outputs.skipped }}
+      digest: ${{ steps.image.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,82 +56,45 @@ jobs:
         id: image
         uses: ./.github/actions/build-image
         with:
-          name: ${{ matrix.name }}
-          dir: ${{ matrix.dir }}
-          cache: ${{ matrix.cache }}
-
-      # matrix job outputs are last-write-wins, so the hand-over to `sign` is one tiny artifact per variant (only reached when the build succeeded)
-      - name: Leave the result for sign
-        env:
-          PUBLISHED: ${{ steps.image.outputs.published }}
-          IMAGE: ${{ steps.image.outputs.image }}
-          VERSION: ${{ steps.image.outputs.version }}
-          SKIPPED: ${{ steps.image.outputs.skipped }}
-          DIGEST: ${{ steps.image.outputs.digest }}
-        run: |
-          jq -n --arg published "${PUBLISHED}" --arg image "${IMAGE}" --arg version "${VERSION}" --arg skipped "${SKIPPED}" --arg digest "${DIGEST}" \
-            '{published: $published, image: $image, version: $version, skipped: $skipped, digest: $digest}' | tee published.json
-
-      - name: Upload the result
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: published-${{ matrix.dir }}
-          path: published.json
-          if-no-files-found: error
+          name: octarine-bins
+          dir: src
 
   # signing is in this workflow, not in a shared one: the environment secret SIGNING_SECRET does not reach a job of a reusable workflow
   sign:
-    name: Sign the ${{ matrix.label }}binaries image and move testing
+    name: Sign the binaries image and move testing
     needs: build
-    # runs although another variant's build failed (each variant stands alone); this variant's own failed build leaves no artifact and fails the download below
     # only testing signs: the `signing` environment admits only main and testing, and main builds nothing (a branch ref publishes nothing, so it does not sign either)
-    if: ${{ !cancelled() && github.ref == 'refs/heads/testing' }}
+    if: github.ref == 'refs/heads/testing'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment: signing
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix: *variants
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      # no artifact = this variant's build failed (or was cancelled): this step fails the job
-      - name: Download this variant's build result
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: published-${{ matrix.dir }}
-
-      - name: Read the build result
-        id: built
-        run: jq -r 'to_entries[] | "\(.key)=\(.value)"' published.json | tee -a "${GITHUB_OUTPUT}"
-
       - name: Sign, then move testing
         uses: ./.github/actions/sign-image
         with:
-          image: ${{ steps.built.outputs.image }}
-          version: ${{ steps.built.outputs.version }}
-          digest: ${{ steps.built.outputs.digest }}
-          skipped: ${{ steps.built.outputs.skipped }}
+          image: ${{ needs.build.outputs.image }}
+          version: ${{ needs.build.outputs.version }}
+          digest: ${{ needs.build.outputs.digest }}
+          skipped: ${{ needs.build.outputs.skipped }}
           key: ${{ secrets.SIGNING_SECRET }}
 
-  # main: each testing image becomes latest (see binaries_promote.py), independently. Nothing else moves latest.
+  # main: the testing image becomes latest (see binaries_promote.py). Nothing else moves latest.
   promote:
-    name: Promote the tested ${{ matrix.label }}binaries image
+    name: Promote the tested binaries image
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix: *variants
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -147,5 +104,5 @@ jobs:
       - name: Retag testing to latest
         uses: ./.github/actions/promote-image
         with:
-          name: ${{ matrix.name }}
-          dir: ${{ matrix.dir }}
+          name: octarine-bins
+          dir: src
