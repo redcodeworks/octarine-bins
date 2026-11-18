@@ -15,7 +15,7 @@ import sys
 
 import pytest
 
-from conftest import FAKES, SCRIPTS, git
+from conftest import FAKES, find_script, git
 
 
 class World:
@@ -50,10 +50,11 @@ class World:
         git(self.clone, "checkout", "-q", "-b", "testing")
         scripts = self.clone / ".github/scripts"
         scripts.mkdir(parents=True)
+        (scripts / "00-lib").mkdir()
 
         # the real orchestration and its helper module
-        for f in ("bump_weekly.py", "ci.py"):
-            shutil.copy(SCRIPTS / f, scripts)
+        shutil.copy(find_script("bump_weekly.py"), scripts)
+        shutil.copy(find_script("ci.py"), scripts / "00-lib")
 
         # the stubs stand in for the per-pin decision and the check posting
         for stub in ("bump_run.py", "bump_checks.py"):

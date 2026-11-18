@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "00-lib"))
 import ci  # noqa: E402
 
 # the kept shell scripts: inert, never checked as live code
