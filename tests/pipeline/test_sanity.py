@@ -30,10 +30,10 @@ def test_the_real_containerfiles_copy_only_listed_inputs():
 
 
 def test_a_copy_of_an_unlisted_path_is_found(tmp_path, monkeypatch):
-    tracked_repo(tmp_path, {"dx/Containerfile": "FROM x AS a\nCOPY --from=a /out /out\nCOPY packages /p\nCOPY extra.txt /e\nCOPY --from=lib assemble.sh /\n",
-                            "Justfile": "--build-context lib=src/lib \\\n --build-context installer=installer\n"})
+    tracked_repo(tmp_path, {"src/Containerfile": "FROM x AS a\nCOPY --from=a /out /out\nCOPY lib /l\nCOPY --from=extra extra.txt /e\n",
+                            "Justfile": "--build-context extra=tools\n"})
     monkeypatch.chdir(tmp_path)
-    assert sanity.input_problems() == ["dx/Containerfile copies 'dx/extra.txt', which is not in ci.inputs('dx'): a change to it would not rebuild the image"]
+    assert sanity.input_problems() == ["src/Containerfile copies 'tools/extra.txt', which is not in ci.inputs('src'): a change to it would not rebuild the image"]
 
 
 def test_the_two_variant_lists_are_equal():

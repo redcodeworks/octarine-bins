@@ -78,7 +78,7 @@ jobs:
       - name: Check Just format
         run: just check
 
-  # one job per group (pytest through uv with the locked dependencies, plus the bash tests of the group: fake registry, cosign, GitHub API and dnf5, no network)
+  # one job per group (pytest through uv with the locked dependencies, fake registry, cosign and GitHub API, no network)
   tests:
     name: tests (${{ matrix.group }})
     if: github.event_name != 'schedule'
