@@ -68,15 +68,6 @@ def input_problems(justfile="Justfile"):
     return found
 
 
-def variant_problems():
-    """promotable.yml repeats the variants matrix of binaries.yml (a matrix cannot be shared across workflow files): the two lists must be equal."""
-    def variants(workflow, job):
-        return yaml.safe_load(Path(workflow).read_text())["jobs"][job]["strategy"]["matrix"]["include"]
-    if variants(".github/workflows/binaries.yml", "build") != variants(".github/workflows/promotable.yml", "promotable"):
-        return ["the matrix of promotable.yml differs from the variants of binaries.yml: keep the two lists equal"]
-    return []
-
-
 def problems():
     found = []
     for f in tracked("*.sh"):
@@ -97,7 +88,7 @@ def problems():
 
 def main(argv=None):
     ci.arg_parser(__doc__).parse_args(argv)
-    found = problems() + input_problems() + variant_problems()
+    found = problems() + input_problems()
     for p in found:
         ci.log.error(p)
     if not found:

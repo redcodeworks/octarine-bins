@@ -1,6 +1,6 @@
 name: Sign a binaries image and move testing
 description: >-
-  The signing steps shared by the three images, run inside the caller's `sign` job (`environment: signing`: an environment secret does not reach a job inside a reusable
+  The signing steps, run inside the caller's `sign` job (`environment: signing`: an environment secret does not reach a job inside a reusable
   workflow, so the job and its environment stay in the caller and only the steps are shared). Signs the pushed digest, verifies it with cosign.pub and only THEN moves
   `testing` to it, so nobody ever sees an unsigned `testing`. The caller checks out the repository first.
 inputs:

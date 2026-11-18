@@ -1,13 +1,13 @@
 name: Promote a tested binaries image
 description: >-
-  The promote steps shared by the three images, run inside the caller's `promote` job on main: retag the tested, signed `testing` image to `latest` (binaries_promote.py,
+  The promote steps, run inside the caller's `promote` job on main: retag the tested, signed `testing` image to `latest` (binaries_promote.py,
   no rebuild). The caller checks out the repository first.
 inputs:
   name:
-    description: Image name under ghcr.io/<owner>/ (octarine-bins, octarine-bins-dx or octarine-bins-gx)
+    description: Image name under ghcr.io/<owner>/ (octarine-bins)
     required: true
   dir:
-    description: Build directory of the image (src, dx or gx), the trees promote compares
+    description: Build directory of the image (src), the tree promote compares
     required: true
   check:
     description: "'--check' makes it a dry run (the promotion PR's Promotable jobs): decide only, retag nothing"
