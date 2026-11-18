@@ -13,8 +13,8 @@ SCHEDULERS = layout.table_names(ROOT / "src/scx/schedulers.tsv")
 COMPONENTS = layout.table_names(ROOT / "src/components.tsv")
 
 
-def assemble(img, components_tsv, *flags):
-    return subprocess.run(["bash", str(ROOT / "src/lib/assemble.sh"), *flags, str(img), str(components_tsv)], capture_output=True, text=True)
+def assemble(img, components_tsv):
+    return subprocess.run(["bash", str(ROOT / "src/lib/assemble.sh"), str(img), str(components_tsv)], capture_output=True, text=True)
 
 
 def listing(img):
@@ -43,8 +43,8 @@ def img(tmp_path):
     return d
 
 
-def problems(img, components=COMPONENTS, **kw):
-    return layout.check(listing(img), SCHEDULERS, components, **kw)
+def problems(img, components=COMPONENTS):
+    return layout.check(listing(img), SCHEDULERS, components)
 
 
 def test_assembled_image_passes_and_components_are_one_per_line(img):
@@ -73,42 +73,3 @@ def add_stray_directory(img):
 def test_a_damaged_image_fails_and_names_the_problem(img, mutate, expected):
     mutate(img)
     assert problems(img) == [expected]
-
-
-def test_empty_dx_gx_image_passes_only_with_allow_empty(tmp_path):
-    d = tmp_path / "empty"
-    d.mkdir()
-    assert assemble(d, ROOT / "dx/components.tsv", "--allow-empty").returncode == 0
-    assert layout.check(listing(d), SCHEDULERS, [], allow_empty=True) == []
-    with pytest.raises(ValueError):
-        layout.check(listing(d), SCHEDULERS, [])  # the base never accepts zero components
-    assert assemble(d, ROOT / "dx/components.tsv").returncode != 0  # nor does the assembler
-    (d / "BUILDINFO").unlink()
-    assert layout.check(listing(d), SCHEDULERS, [], allow_empty=True) == ["the binaries image lacks BUILDINFO"]
-
-
-def test_an_incomplete_base_fails_even_when_empty_is_allowed(img):
-    shutil.rmtree(img / "extest")
-    shutil.rmtree(img / "ghostty")
-    assert "the binaries image lacks extest/lib/libextest.so" in problems(img, allow_empty=True)
-
-
-@pytest.mark.parametrize("directory,components", [("src", COMPONENTS), ("dx", []), ("gx", [])])
-def test_packages_tree_of_every_image(img, tmp_path, directory, components):
-    """/packages as the Containerfile lays it out: the image's lists plus the shared installer, read with the file names `main` derives."""
-    if components:
-        top = img
-    else:
-        top = tmp_path / "empty"
-        top.mkdir()
-        assert assemble(top, ROOT / "dx/components.tsv", "--allow-empty").returncode == 0
-    (top / "packages").mkdir()
-    for f in (ROOT / directory / "packages").iterdir():
-        shutil.copy(f, top / "packages")
-    shutil.copy(ROOT / "installer/install.sh", top / "packages")
-    names = sorted(p.name for p in (ROOT / directory / "packages").iterdir()) + ["install.sh"]
-    assert layout.check(listing(top), SCHEDULERS, components, allow_empty=not components, packages=names) == []
-    (top / "packages/install.sh").unlink()
-    assert layout.check(listing(top), SCHEDULERS, components, allow_empty=not components, packages=names) == ["the binaries image lacks packages/install.sh"]
-    # a layout check that does not expect /packages rejects the directory
-    assert "unexpected top-level entries: packages" in layout.check(listing(top), SCHEDULERS, components, allow_empty=not components)[0]

@@ -15,9 +15,7 @@ def repo(tmp_path):
     r = tmp_path / "repo"
     r.mkdir()
     git(r, "init", "-q")
-    files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/NOTES.md": "n", "dx/packages/NOTES.md": "n", "src/builder.env": "b", "installer/install.sh": "i1",
-             "dx/Containerfile": "dc", "dx/components.tsv": "dt", "dx/packages/required-fedora.txt": "dp", "dx/README.md": "doc",
-             "gx/Containerfile": "gc", "gx/components.tsv": "gt", "gx/packages/required-fedora.txt": "gp", "gx/README.md": "doc",
+    files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/NOTES.md": "n", "src/builder.env": "b",
              "README.md": "doc", "Justfile": "j", "tests/t.py": "t", ".github/workflows/binaries.yml": "wf",
              ".github/actions/build-image/action.yml": "ba", ".github/scripts/push_image.py": "p", ".github/scripts/binaries_layout.py": "l"}
     for name, content in files.items():
@@ -48,19 +46,13 @@ def tested(fakes):
 # (edit, image directory, the image's content unchanged?): one table for the build skip and the promotion guard
 RULES = [
     (None, "src", True),
-    # tooling and docs: no image content, whatever the image
-    ("Justfile", "src", True), ("Justfile", "dx", True),
-    (".github/workflows/binaries.yml", "src", True),
-    (".github/actions/build-image/action.yml", "gx", True), (".github/scripts/push_image.py", "src", True), (".github/scripts/binaries_layout.py", "dx", True),
-    ("tests/t.py", "src", True), ("README.md", "src", True), ("dx/README.md", "dx", True), ("gx/README.md", "gx", True),
-    # content: the base
+    # tooling and docs: no image content
+    ("Justfile", "src", True), (".github/workflows/binaries.yml", "src", True),
+    (".github/actions/build-image/action.yml", "src", True), (".github/scripts/push_image.py", "src", True), (".github/scripts/binaries_layout.py", "src", True),
+    ("tests/t.py", "src", True), ("README.md", "src", True),
+    # content: everything under src/
     ("src/f", "src", False), ("src/Containerfile", "src", False), ("src/lib/stage.sh", "src", False), ("src/lib/assemble.sh", "src", False),
-    ("src/builder.env", "src", False), ("installer/install.sh", "src", False), ("src/NOTES.md", "src", False), ("dx/packages/required-fedora.txt", "src", True),
-    # content: dx reads only its own files, assemble.sh, the builder pin and the installer
-    ("dx/packages/required-fedora.txt", "dx", False), ("dx/packages/NOTES.md", "dx", False), ("dx/Containerfile", "dx", False), ("dx/components.tsv", "dx", False),
-    ("src/lib/assemble.sh", "dx", False), ("src/builder.env", "dx", False), ("installer/install.sh", "dx", False),
-    ("src/f", "dx", True), ("src/lib/stage.sh", "dx", True), ("gx/packages/required-fedora.txt", "dx", True),
-    ("gx/packages/required-fedora.txt", "gx", False), ("dx/packages/required-fedora.txt", "gx", True), ("installer/install.sh", "gx", False),
+    ("src/builder.env", "src", False), ("src/NOTES.md", "src", False),
 ]
 
 
@@ -163,15 +155,15 @@ def test_promote_compares_the_content_of_the_image(promoted, edit, directory, un
 def test_the_revision_label_follows_the_last_content_change(fakes, tested, repo):
     """A content change builds (label = that commit); tooling changes after it skip and still promote; without the new label a content change never skips or promotes."""
     r, rev = repo
-    change(r, "dx/packages/required-fedora.txt", "new list")
+    change(r, "src/f", "new content")
     built = git(r, "rev-parse", "HEAD")
-    assert skip(r, rev, "dx")[1] == "skip=false"                  # the old label names a commit with other content: build
-    assert skip(r, built, "dx")[1] == "skip=true"                 # the build stamps the label with this commit
+    assert skip(r, rev)[1] == "skip=false"                  # the old label names a commit with other content: build
+    assert skip(r, built)[1] == "skip=true"                 # the build stamps the label with this commit
     change(r, "Justfile", "tooling")
-    change(r, "dx/README.md", "docs")
-    assert skip(r, built, "dx")[1] == "skip=true"                 # tooling and docs: the label stays at the content commit and still matches
-    assert promote(r, built, "dx")[0].returncode == 0
-    assert promote(r, rev, "dx")[0].returncode == 1               # a stale label (the image of the previous content) is refused
+    change(r, "README.md", "docs")
+    assert skip(r, built)[1] == "skip=true"                 # tooling and docs: the label stays at the content commit and still matches
+    assert promote(r, built)[0].returncode == 0
+    assert promote(r, rev)[0].returncode == 1               # a stale label (the image of the previous content) is refused
 
 
 def test_promote_prints_the_real_error_of_a_failed_verification(promoted):

@@ -66,10 +66,6 @@ COPY --from=extest /out /out/extest
 COPY --from=ghostty /out /out/ghostty
 COPY components.tsv lib/assemble.sh /
 RUN /assemble.sh /out /components.tsv
-# after assemble.sh: it refuses a directory that is not a component
-# /packages: this image's lists (src/packages/) and the shared installer (installer/), side by side; the contract with octarine-os is in CLAUDE.md
-COPY packages /out/packages
-COPY --from=installer . /out/packages/
 
 FROM scratch
 

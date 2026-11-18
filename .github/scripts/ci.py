@@ -159,17 +159,14 @@ def version(tag: str) -> Version:
 def inputs(directory: str) -> list[str]:
     """What lands in an image: a hand-written list (the ONE definition, used by the build skip and by the promotion guard alike) that the `sanity` copy guard checks against the Containerfiles' COPY lines.
 
-    src: the whole `src/` (Containerfile, components.tsv, builder.env, lib, the components, packages) and `installer/`. dx and gx: their Containerfile, components.tsv and
-    packages/, the one shared helper they copy (`src/lib/assemble.sh`), the builder pin (`src/builder.env`) and `installer/`.
+    src: the whole `src/` (Containerfile, components.tsv, builder.env, lib, the components).
     Not inputs: the Justfile, `.github/**`, tests, READMEs and docs (they are not inputs; every path under an input counts, markdown included); a change to those builds nothing (see CLAUDE.md, "Skipping a build").
     """
     match directory:
         case "src":
-            return ["src", "installer"]
-        case "dx" | "gx":
-            return [f"{directory}/Containerfile", f"{directory}/components.tsv", f"{directory}/packages", "src/lib/assemble.sh", "src/builder.env", "installer"]
+            return ["src"]
         case _:
-            raise ValueError(f"unknown image directory '{directory}' (src, dx or gx)")
+            raise ValueError(f"unknown image directory '{directory}' (src)")
 
 
 def has_commit(rev: str) -> bool:

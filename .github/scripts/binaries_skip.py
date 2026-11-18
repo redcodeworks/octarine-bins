@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decide whether a push to testing needs a build. Usage: binaries_skip.py <registry-image> <dir>   (dir: src, dx or gx; run in a git checkout; env GITHUB_OUTPUT)
+"""Decide whether a push to testing needs a build. Usage: binaries_skip.py <registry-image> <dir>   (dir: src; run in a git checkout; env GITHUB_OUTPUT)
 
 NO build when the CONTENT of the image (ci.inputs: what its Containerfile copies in; the Justfile, workflows, actions, scripts, tests and docs are not content) at HEAD
 equals that at the commit the current `testing` image was built from (its label org.opencontainers.image.revision) and that image verifies with cosign.pub. Prints and exports skip=true|false. Absent testing, an unreadable revision, other
@@ -43,7 +43,7 @@ def decide(image, directory):
 def main(argv=None):
     ap = ci.arg_parser(__doc__)
     ap.add_argument("image", help="registry image without a tag (registry/owner/name)")
-    ap.add_argument("dir", choices=["src", "dx", "gx"], help="the image directory")
+    ap.add_argument("dir", choices=["src"], help="the image directory")
     args = ap.parse_args(argv)
     try:
         skip, reason = decide(args.image, args.dir)
