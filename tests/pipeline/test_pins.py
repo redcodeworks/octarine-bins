@@ -1,5 +1,9 @@
-"""The pin files, writer into reader (the real ghostty pins are copied, written by the real writer and read back by the real reader), and the weekly decisions against a fake
-GitHub API (githubkit talks to it over HTTP) and a Zig index file."""
+"""The pin files and the weekly decisions.
+
+The pin files are tested writer into reader (the real ghostty pins are copied, written
+by the real writer and read back by the real reader). The weekly decisions are tested
+against a fake GitHub API (githubkit talks to it over HTTP) and a Zig index file.
+"""
 
 import base64
 import json
@@ -22,6 +26,11 @@ URL = f"https://ziglang.org/download/{ZIG}/zig-x86_64-linux-{ZIG}.tar.xz"
 
 @pytest.fixture
 def root(tmp_path):
+    """A scratch repository root holding copies of the real pin files.
+
+    The ghostty, scx and extest directories are copied without their shell scripts
+    (and scx without the scheduler manifest): pins and nothing else.
+    """
     shutil.copytree(
         ROOT / "src/ghostty",
         tmp_path / "src/ghostty",
@@ -41,12 +50,15 @@ def root(tmp_path):
 
 
 def test_real_pin_files_load():
+    """The repository's own pin files pass the reader's validation."""
+    # one pin file per component with a source pin
     for c in ("scx", "extest", "ghostty"):
         pin = pins.load_upstream(ROOT / "src" / c / "upstream.env")
         assert pin.watch and len(pin.commit) == 40
 
 
 def test_the_ghostty_writer_changes_the_two_pin_files_together_and_nothing_else(root):
+    """The writer's output is read back by the reader; comments and the key stay."""
     before = (root / "src/ghostty/zig.env").read_text().splitlines()
     pins.write_ghostty(root / "src/ghostty", "v1.9.0", SHA, ZIG, URL, "c" * 64, 123)
     pin = pins.load_upstream(root / "src/ghostty/upstream.env")
@@ -58,14 +70,21 @@ def test_the_ghostty_writer_changes_the_two_pin_files_together_and_nothing_else(
         URL + ".minisig",
     )
     after = (root / "src/ghostty/zig.env").read_text().splitlines()
+
+    # the comment lines are untouched by the rewrite
     assert [l for l in before if l.startswith("#")] == [
         l for l in after if l.startswith("#")
-    ]  # comments and the key stay
+    ]
+
+    # the signature key line is not one of the keys the writer sets
     assert zig["ZIG_MINISIGN_KEY"].startswith("RW")
 
 
 def test_the_writer_refuses_an_unofficial_zig_entry_and_touches_nothing(root):
+    """A Zig URL outside ziglang.org is refused and no file changes."""
     before = (root / "src/ghostty/upstream.env").read_text()
+
+    # the refusal is a ValueError raised before the first write
     with pytest.raises(ValueError):
         pins.write_ghostty(
             root / "src/ghostty",
@@ -80,6 +99,7 @@ def test_the_writer_refuses_an_unofficial_zig_entry_and_touches_nothing(root):
 
 
 def test_a_tag_pinned_component_bumps_to_a_newer_release(root, github):
+    """A newer release of a tag-pinned project is a bump; the pinned tag is current."""
     tag = pins.load_upstream(root / "src/scx/upstream.env").tag
     github.routes.update(
         {
@@ -98,20 +118,21 @@ def test_a_tag_pinned_component_bumps_to_a_newer_release(root, github):
 
 
 def test_an_api_error_ends_the_check_with_the_sdks_error(root, github):
-    with pytest.raises(
-        ValueError, match="no release"
-    ):  # 404 on the release of a tag-pinned project
+    """A missing release of a tag pin is a ValueError, a later 404 the SDK's error."""
+    # 404 on the release of a tag-pinned project
+    with pytest.raises(ValueError, match="no release"):
         upstream_check.check(root, "src/scx")
     github.routes["/repos/sched-ext/scx/releases/latest"] = fixture(
         "release", tag_name="v9.0.0"
     )
-    with pytest.raises(
-        RequestFailed
-    ):  # the commit of the tag cannot be read: nothing is guessed
+
+    # the commit of the tag cannot be read: nothing is guessed
+    with pytest.raises(RequestFailed):
         upstream_check.check(root, "src/scx")
 
 
 def test_a_fork_pin_waits_for_the_fork_to_contain_the_new_commit(root, github):
+    """A fork behind upstream gives forkbehind, a fork that has the commit a bump."""
     pinned = pins.load_upstream(root / "src/extest/upstream.env").commit
     github.routes.update(
         {
@@ -129,22 +150,32 @@ def test_a_fork_pin_waits_for_the_fork_to_contain_the_new_commit(root, github):
         }
     )
     assert upstream_check.check(root, "src/extest").verb == "forkbehind"
+
+    # the fork has synced: the bump is allowed
     github.routes[f"/repos/redcodeworks/extest/compare/{SHA}...main"] = fixture(
         "compare", status="ahead"
     )
     d = upstream_check.check(root, "src/extest")
     assert (d.verb, d.tag, d.commit) == ("bump", "v2", SHA)
-    del github.routes[
-        f"/repos/redcodeworks/extest/compare/{SHA}...main"
-    ]  # 404: the fork does not have the commit at all
+
+    # 404: the fork does not have the commit at all
+    del github.routes[f"/repos/redcodeworks/extest/compare/{SHA}...main"]
     assert upstream_check.check(root, "src/extest").verb == "forkbehind"
 
 
 def ghostty_world(monkeypatch, github, tmp_path, root, tags, zon, index):
+    """Set up the fake Ghostty and Zig world for one decision.
+
+    `tags` is a function of the pinned tag that returns the repository's tag names,
+    `zon` the text of build.zig.zon, `index` the Zig index as a dict (written to a
+    file that ZIG_INDEX_FILE points at). The fake GitHub API gets the routes.
+    """
     tag = pins.load_upstream(root / "src/ghostty/upstream.env").tag
     f = tmp_path / "index.json"
     f.write_text(json.dumps(index))
     monkeypatch.setenv("ZIG_INDEX_FILE", str(f))
+
+    # the tags (a list built from the names), the new tag's commit and its zon file
     github.routes.update(
         {
             "/repos/ghostty-org/ghostty/tags": [
@@ -165,6 +196,7 @@ ENTRY = {"x86_64-linux": {"tarball": URL, "shasum": "c" * 64, "size": "5"}}
 def test_ghostty_bump_brings_the_newest_patch_of_the_zig_minor_the_tag_needs(
     root, tmp_path, monkeypatch, github
 ):
+    """A new stable tag bumps with the newest published patch of the Zig minor."""
     ghostty_world(
         monkeypatch,
         github,
@@ -175,6 +207,8 @@ def test_ghostty_bump_brings_the_newest_patch_of_the_zig_minor_the_tag_needs(
         {ZIG: ENTRY, "0.17.0": {}, "master": {}},
     )
     d = ghostty_check.check(root)
+
+    # every field of the bump decision
     assert (d.verb, d.tag, d.commit, d.zig, d.zig_url, d.zig_sha256, d.zig_size) == (
         "bump",
         "v9.0.0",
@@ -184,12 +218,15 @@ def test_ghostty_bump_brings_the_newest_patch_of_the_zig_minor_the_tag_needs(
         "c" * 64,
         "5",
     )
+
+    # the one-line form starts with the verb, tag, commit, zig and URL
     assert d.line().startswith(f"bump v9.0.0 {SHA2} {ZIG} {URL}")
 
 
 def test_ghostty_waits_when_ziglang_has_no_tarball_of_the_minor_yet(
     root, tmp_path, monkeypatch, github
 ):
+    """A new tag whose Zig minor is not published yet gives `wait`."""
     ghostty_world(
         monkeypatch,
         github,
@@ -205,6 +242,7 @@ def test_ghostty_waits_when_ziglang_has_no_tarball_of_the_minor_yet(
 def test_ghostty_current_when_the_pin_is_the_newest_stable_tag(
     root, tmp_path, monkeypatch, github
 ):
+    """When the pinned tag is the newest stable tag the decision is `current`."""
     ghostty_world(
         monkeypatch, github, tmp_path, root, lambda t: [t, "tip"], ZON, {ZIG: ENTRY}
     )
@@ -212,12 +250,19 @@ def test_ghostty_current_when_the_pin_is_the_newest_stable_tag(
 
 
 def fake_get(monkeypatch, *responses):
-    """httpx.get answers with the given responses in turn (an exception instance is raised); returns the list of calls."""
+    """Make httpx.get answer with the given responses in turn.
+
+    An exception instance among them is raised instead of returned. Returns the list
+    of keyword arguments of each call, so a test can count and inspect the calls.
+    """
     calls, queue = [], list(responses)
 
     def get(url, **kwargs):
+        """The fake httpx.get: record the call, then answer or raise the next item."""
         calls.append(kwargs)
         item = queue.pop(0)
+
+        # an exception in the queue stands for a transport error
         if isinstance(item, Exception):
             raise item
         return item
@@ -227,6 +272,7 @@ def fake_get(monkeypatch, *responses):
 
 
 def response(status, content=b""):
+    """An httpx.Response with `status` and `content` for the Zig index URL."""
     return httpx.Response(
         status,
         content=content,
@@ -235,6 +281,7 @@ def response(status, content=b""):
 
 
 def test_the_zig_index_download_retries_transport_errors_and_5xx(monkeypatch):
+    """A timeout and a 503 are retried, the third answer is used."""
     monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
     monkeypatch.setenv("RETRY_DELAY", "0")
     calls = fake_get(
@@ -243,6 +290,8 @@ def test_the_zig_index_download_retries_transport_errors_and_5xx(monkeypatch):
         response(503),
         response(200, b'{"0.17.1": {}}'),
     )
+
+    # three calls, the index of the last answer, the request options passed on
     assert list(ghostty_check.load_index().root) == ["0.17.1"] and len(calls) == 3
     assert calls[0]["timeout"] == 30 and calls[0]["follow_redirects"] is True
 
@@ -258,34 +307,47 @@ def test_the_zig_index_download_retries_transport_errors_and_5xx(monkeypatch):
 def test_a_definitive_or_invalid_zig_index_raises_and_is_not_retried(
     monkeypatch, answer, error
 ):
+    """A 404, bad JSON or a wrong shape raises at once, after a single call."""
     monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
     calls = fake_get(monkeypatch, answer)
+
+    # the error type depends on what was wrong with the answer
     with pytest.raises(error):
         ghostty_check.load_index()
     assert len(calls) == 1
 
 
 def test_a_zig_index_that_stays_down_raises_after_three_tries(monkeypatch):
+    """A server that never answers raises the transport error after three tries."""
     monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
     monkeypatch.setenv("RETRY_DELAY", "0")
     calls = fake_get(monkeypatch, *[httpx.ConnectError("refused")] * 3)
+
+    # the last error comes back with the attempt count
     with pytest.raises(httpx.ConnectError, match="failed 3 attempts"):
         ghostty_check.load_index()
     assert len(calls) == 3
 
 
 def test_lock_changes_lists_the_packages_that_moved():
+    """A changed, an added and an unchanged package: only the moved ones are listed."""
     import bump_run
 
     old = '[[package]]\nname = "httpx"\nversion = "0.28.1"\n\n[[package]]\nname = "yaml"\nversion = "6"\n'
     new = '[[package]]\nname = "httpx"\nversion = "0.28.2"\n\n[[package]]\nname = "yaml"\nversion = "6"\n\n[[package]]\nname = "new"\nversion = "1"\n'
+
+    # the changed and the added package, sorted by name
     assert bump_run.lock_changes(old, new) == ["httpx 0.28.1 to 0.28.2", "new - to 1"]
+
+    # nothing moved, nothing listed
     assert bump_run.lock_changes(old, old) == []
 
 
 def test_newest_python_is_the_highest_default_cpython_of_the_same_minor():
+    """Free-threaded builds, other implementations and other minors do not count."""
     import bump_run
 
+    # uv's list entries for the table of (implementation, variant, version) below
     listing = [
         {"implementation": i, "variant": v, "version": ver}
         for i, v, ver in [
@@ -296,5 +358,7 @@ def test_newest_python_is_the_highest_default_cpython_of_the_same_minor():
             ("cpython", "default", "3.15.0"),
         ]
     ]
+
+    # the highest plain CPython of the 3.14 minor, and none of a minor not listed
     assert bump_run.newest_python(listing, "3.14.4") == "3.14.10"
     assert bump_run.newest_python(listing, "3.13.1") is None
