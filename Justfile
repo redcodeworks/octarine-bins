@@ -9,7 +9,7 @@ default:
 check:
     just --unstable --fmt --check -f Justfile
 
-# Build an image: dir is src (the base image, octarine-bins), dx or gx (octarine-bins-dx, -gx). Every component in its own stage; a failing stage fails the build and nothing is tagged
+# Build an image: dir is src (octarine-bins). Every component in its own stage; a failing stage fails the build and nothing is tagged
 build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -19,20 +19,17 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
     ${PODMAN:-podman} build --jobs 3 ${BUILD_ARGS:-} \
         --build-arg "BUILDER=${builder}" \
         --tag "{{ image }}" \
-        --build-context lib=src/lib \
-        --build-context installer=installer \
         --file {{ dir }}/Containerfile {{ dir }}
     # the stamp (version, revision, created labels) is a separate no-cache step, so a cache-served build is stamped too (stamp_image.py)
     uv run --frozen --no-dev python -I .github/scripts/stamp_image.py "{{ image }}" "{{ version }}" "{{ revision }}"
 
-# Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/); only dx and gx may hold no component; every image carries /packages
+# Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/)
 layout image="octarine-bins:dev" dir="src":
     uv run --frozen --no-dev python -I .github/scripts/binaries_layout.py "{{ image }}" "{{ dir }}"
 
-# Run the tests: pytest through uv (the locked dependencies, Python from .python-version) and the bash tests (installer). group is one directory of tests/ (CI runs one job per group); empty runs all
+# Run the tests: pytest through uv (the locked dependencies, Python from .python-version). group is one directory of tests/ (CI runs one job per group); empty runs all
 test group="":
     #!/usr/bin/env bash
     set -euo pipefail
     dir="tests/{{ group }}"
     uv run --frozen pytest "${dir}"
-    for t in $(find "${dir}" -name '*.sh' | sort); do bash "$t"; done
