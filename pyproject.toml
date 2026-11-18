@@ -13,11 +13,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "ruff"]  # ruff only formats (githooks/pre-commit); no lint rules, no CI check
+dev = ["pytest", "ruff"]  # ruff only formats (githooks/pre-commit), with its defaults; no configuration, no lint rules, no CI check
 
 [tool.uv]
 package = false
-
-[tool.ruff]
-# Format only. Measured on the tree: p90 of lines is 115 characters, p95 151; 160 leaves the code alone and only wraps the few really long lines.
-line-length = 160

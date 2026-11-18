@@ -26,8 +26,12 @@ def decide(image, directory):
     try:
         config = json.loads(registry.read_by_digest("config", image, tested))
     except (registry.Absent, ValueError) as e:
-        raise registry.ReadError(f"the config of {image}@{tested} could not be read ({e})")
-    rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""
+        raise registry.ReadError(
+            f"the config of {image}@{tested} could not be read ({e})"
+        )
+    rev = ((config.get("config") or {}).get("Labels") or {}).get(
+        "org.opencontainers.image.revision"
+    ) or ""
     if not re.fullmatch(r"[0-9a-f]{40}", rev):
         return False, "testing has no revision label"
     if not ci.fetch_commit(rev):

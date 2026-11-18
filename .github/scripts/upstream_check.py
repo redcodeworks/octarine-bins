@@ -46,8 +46,12 @@ def check(root, directory):
         latest = tags[0].name if tags else ""
     if not latest:
         if tag and repo == fork:
-            raise ValueError(f"{repo} has no release but {directory} pins the tag {tag}")
-        return Decision("report", text=f"{repo} has no release or tag; pinned at {pinned[:7]}")
+            raise ValueError(
+                f"{repo} has no release but {directory} pins the tag {tag}"
+            )
+        return Decision(
+            "report", text=f"{repo} has no release or tag; pinned at {pinned[:7]}"
+        )
 
     def commit_of(ref):
         return rest.repos.get_commit(owner, name, ref).parsed_data.sha
@@ -56,13 +60,17 @@ def check(root, directory):
         if latest == tag:
             return Decision("current", text=f"{tag} is the latest release")
         if ci.version(latest) <= ci.version(tag):
-            return Decision("current", text=f"pinned {tag} is ahead of the latest release {latest}")
+            return Decision(
+                "current", text=f"pinned {tag} is ahead of the latest release {latest}"
+            )
         return Decision("bump", tag=latest, commit=commit_of(latest))
 
     if repo != fork and latest == tag:
         return Decision("current", text=f"{tag} is the latest release")
     commit = commit_of(latest)
-    status = rest.repos.compare_commits(owner, name, f"{pinned}...{commit}").parsed_data.status
+    status = rest.repos.compare_commits(
+        owner, name, f"{pinned}...{commit}"
+    ).parsed_data.status
     if status in ("ahead", "diverged"):
         if repo == fork:
             return Decision("bump", tag=latest, commit=commit)
@@ -71,17 +79,27 @@ def check(root, directory):
         fork_owner, fork_name = fork.split("/")
         branch = rest.repos.get(fork_owner, fork_name).parsed_data.default_branch
         try:
-            fstatus = rest.repos.compare_commits(fork_owner, fork_name, f"{commit}...{branch}").parsed_data.status
+            fstatus = rest.repos.compare_commits(
+                fork_owner, fork_name, f"{commit}...{branch}"
+            ).parsed_data.status
         except RequestFailed as e:
             if e.response.status_code != 404:
                 raise
             fstatus = "missing"  # 404: the fork does not have the commit at all
         if fstatus in ("ahead", "identical"):
             return Decision("bump", tag=latest, commit=commit)
-        return Decision("forkbehind", tag=latest, commit=commit, text=f"the fork {fork} is behind {repo}: {latest} is not in {fork}/{branch}")
+        return Decision(
+            "forkbehind",
+            tag=latest,
+            commit=commit,
+            text=f"the fork {fork} is behind {repo}: {latest} is not in {fork}/{branch}",
+        )
     if status == "identical":
         return Decision("current", text=f"the pinned commit is {latest}")
-    return Decision("report", text=f"latest release {latest} is {status} of the pinned commit {pinned[:7]}; nothing to bump")
+    return Decision(
+        "report",
+        text=f"latest release {latest} is {status} of the pinned commit {pinned[:7]}; nothing to bump",
+    )
 
 
 def main(argv=None):

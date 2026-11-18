@@ -34,12 +34,16 @@ def acceptable(image, directory):
     except registry.NotVerified:
         raise Fail(f"{image}@{tested} is not signed with cosign.pub")
     except registry.ReadError as e:
-        raise Fail(f"{image}@{tested} could not be verified (a read error, not a bad signature): {e}")
+        raise Fail(
+            f"{image}@{tested} could not be verified (a read error, not a bad signature): {e}"
+        )
     try:
         config = json.loads(registry.read_by_digest("config", image, tested))
     except registry.Absent, registry.ReadError, ValueError:
         raise Fail(f"the config of {image}@{tested} could not be read")
-    rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""
+    rev = ((config.get("config") or {}).get("Labels") or {}).get(
+        "org.opencontainers.image.revision"
+    ) or ""
     if not re.fullmatch(r"[0-9a-f]{40}", rev):
         raise Fail(f"{image}:testing has no valid revision label ('{rev}')")
     if not ci.fetch_commit(rev):
@@ -72,7 +76,9 @@ def promote(image, directory):
         raise Fail(str(e))
     try:
         registry.settled(image, "latest", tested)
-        registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}:latest"])  # the tag was copied seconds ago
+        registry.cosign_check_fresh(
+            ["--key", "cosign.pub", f"{image}:latest"]
+        )  # the tag was copied seconds ago
     except registry.ReadError as e:
         raise Fail(str(e))
     except registry.NotVerified:
@@ -86,11 +92,17 @@ def main(argv=None):
     ap = ci.arg_parser(__doc__)
     ap.add_argument("image", help="registry image without a tag (registry/owner/name)")
     ap.add_argument("dir", choices=["src"], help="the image directory")
-    ap.add_argument("--check", action="store_true", help="only decide whether a promotion would be accepted; retags and writes nothing")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="only decide whether a promotion would be accepted; retags and writes nothing",
+    )
     args = ap.parse_args(argv)
     try:
         if args.check:
-            ci.log.info(f"{args.image}:testing would be promoted ({acceptable(args.image, args.dir)})")
+            ci.log.info(
+                f"{args.image}:testing would be promoted ({acceptable(args.image, args.dir)})"
+            )
         else:
             promote(args.image, args.dir)
     except Fail as e:

@@ -47,7 +47,13 @@ def change(r, name, content):
 def skip(repo_path, rev, directory="src", **extra):
     out = repo_path.parent / "gho"
     out.write_text("")
-    p = script("binaries_skip.py", IMG, directory, cwd=repo_path, extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra})
+    p = script(
+        "binaries_skip.py",
+        IMG,
+        directory,
+        cwd=repo_path,
+        extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra},
+    )
     return p, out.read_text().strip()
 
 
@@ -116,12 +122,24 @@ def promoted(fakes, repo):
 def promote(r, rev, directory="src", **extra):
     out = r.parent / "pgho"
     out.write_text("")
-    p = script("binaries_promote.py", IMG, directory, cwd=r, extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra})
+    p = script(
+        "binaries_promote.py",
+        IMG,
+        directory,
+        cwd=r,
+        extra={"REV": rev, "GITHUB_OUTPUT": str(out), **extra},
+    )
     return p, out.read_text().split()
 
 
 def copies(log):
-    return sum(1 for line in log.read_text().splitlines() if line.startswith("skopeo copy")) if log.exists() else 0
+    return (
+        sum(
+            1 for line in log.read_text().splitlines() if line.startswith("skopeo copy")
+        )
+        if log.exists()
+        else 0
+    )
 
 
 def test_promote_retags_testing_to_latest_and_verifies_latest(promoted):
@@ -151,18 +169,26 @@ def test_promote_an_unsigned_testing_fails_and_changes_nothing(promoted):
     r, rev, state, log = promoted
     (state / "latest").write_text("older")
     p, _ = promote(r, rev, COSIGN_MODE="nosig")
-    assert p.returncode == 1 and copies(log) == 0 and (state / "latest").read_text() == "older"
+    assert (
+        p.returncode == 1
+        and copies(log) == 0
+        and (state / "latest").read_text() == "older"
+    )
 
 
 def test_promote_without_a_testing_image_fails(promoted):
     r, rev, state, log = promoted
     (state / "testing").unlink()
     p, _ = promote(r, rev)
-    assert p.returncode == 1 and "build on testing first" in p.stderr and copies(log) == 0
+    assert (
+        p.returncode == 1 and "build on testing first" in p.stderr and copies(log) == 0
+    )
 
 
 @pytest.mark.parametrize("edit,directory,unchanged", RULES)
-def test_promote_compares_the_content_of_the_image(promoted, edit, directory, unchanged):
+def test_promote_compares_the_content_of_the_image(
+    promoted, edit, directory, unchanged
+):
     r, rev, state, log = promoted
     if edit:
         change(r, edit, "changed")
@@ -178,19 +204,32 @@ def test_the_revision_label_follows_the_last_content_change(fakes, tested, repo)
     r, rev = repo
     change(r, "src/f", "new content")
     built = git(r, "rev-parse", "HEAD")
-    assert skip(r, rev)[1] == "skip=false"  # the old label names a commit with other content: build
-    assert skip(r, built)[1] == "skip=true"  # the build stamps the label with this commit
+    assert (
+        skip(r, rev)[1] == "skip=false"
+    )  # the old label names a commit with other content: build
+    assert (
+        skip(r, built)[1] == "skip=true"
+    )  # the build stamps the label with this commit
     change(r, "Justfile", "tooling")
     change(r, "README.md", "docs")
-    assert skip(r, built)[1] == "skip=true"  # tooling and docs: the label stays at the content commit and still matches
+    assert (
+        skip(r, built)[1] == "skip=true"
+    )  # tooling and docs: the label stays at the content commit and still matches
     assert promote(r, built)[0].returncode == 0
-    assert promote(r, rev)[0].returncode == 1  # a stale label (the image of the previous content) is refused
+    assert (
+        promote(r, rev)[0].returncode == 1
+    )  # a stale label (the image of the previous content) is refused
 
 
 def test_promote_prints_the_real_error_of_a_failed_verification(promoted):
     r, rev, state, log = promoted
     p, _ = promote(r, rev, COSIGN_MODE="down")
-    assert p.returncode == 1 and "read error, not a bad signature" in p.stderr and "not signed with cosign.pub" not in p.stderr and copies(log) == 0
+    assert (
+        p.returncode == 1
+        and "read error, not a bad signature" in p.stderr
+        and "not signed with cosign.pub" not in p.stderr
+        and copies(log) == 0
+    )
 
 
 def test_push_image_does_not_overwrite_an_existing_dated_tag(fakes):
@@ -198,28 +237,50 @@ def test_push_image_does_not_overwrite_an_existing_dated_tag(fakes):
     Path(fakes["STATE"], "20261117-abcdef0").write_text("first build")
     out = Path(fakes["STATE"]).parent / "gho"
     out.write_text("")
-    p = script("push_image.py", "local:tag", IMG, "20261117-abcdef0", extra={"GITHUB_OUTPUT": str(out)})
+    p = script(
+        "push_image.py",
+        "local:tag",
+        IMG,
+        "20261117-abcdef0",
+        extra={"GITHUB_OUTPUT": str(out)},
+    )
     assert p.returncode == 0 and "not overwriting" in p.stderr, p.stderr
-    assert out.read_text().strip() == f"digests=sha256:{hashlib.sha256(b'first build').hexdigest()}"
+    assert (
+        out.read_text().strip()
+        == f"digests=sha256:{hashlib.sha256(b'first build').hexdigest()}"
+    )
     assert "podman" not in Path(fakes["LOG"]).read_text()
 
 
-def test_skip_decides_although_the_registry_lags_on_the_digest_read(fakes, tested, repo, tmp_path):
+def test_skip_decides_although_the_registry_lags_on_the_digest_read(
+    fakes, tested, repo, tmp_path
+):
     r, rev = repo
     p, out = skip(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"))
     assert p.returncode == 0 and out == "skip=true", p.stderr
 
 
-def test_promote_survives_registry_lag_on_the_digest_read_and_on_cosign(promoted, tmp_path):
+def test_promote_survives_registry_lag_on_the_digest_read_and_on_cosign(
+    promoted, tmp_path
+):
     r, rev, state, log = promoted
-    p, out = promote(r, rev, DIGEST_LAG="2", DIGEST_LAG_FILE=str(tmp_path / "dlag"), LAG_FILE=str(tmp_path / "lag"), COSIGN_LAG="3")
+    p, out = promote(
+        r,
+        rev,
+        DIGEST_LAG="2",
+        DIGEST_LAG_FILE=str(tmp_path / "dlag"),
+        LAG_FILE=str(tmp_path / "lag"),
+        COSIGN_LAG="3",
+    )
     assert p.returncode == 0 and "changed=true" in out, p.stderr
 
 
 def test_check_mode_accepts_what_promote_accepts_and_writes_nothing(promoted):
     r, rev, state, log = promoted
     p = script("binaries_promote.py", "--check", IMG, "src", cwd=r, extra={"REV": rev})
-    assert p.returncode == 0 and copies(log) == 0 and not (state / "latest").exists(), p.stderr
+    assert p.returncode == 0 and copies(log) == 0 and not (state / "latest").exists(), (
+        p.stderr
+    )
 
 
 def test_check_mode_refuses_a_stale_label_like_promote(promoted):

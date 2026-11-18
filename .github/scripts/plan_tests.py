@@ -21,9 +21,13 @@ def is_test(p):
 def main():
     stray = sorted(p.name for p in TESTS.iterdir() if p.is_file() and is_test(p))
     if stray:
-        print(f"::error::tests/{stray[0]} is outside a group: move it into a tests/<group>/ directory ({', '.join(stray)})")
+        print(
+            f"::error::tests/{stray[0]} is outside a group: move it into a tests/<group>/ directory ({', '.join(stray)})"
+        )
         return 1
-    groups = sorted(d.name for d in TESTS.iterdir() if d.is_dir() and d.name not in NOT_GROUPS)
+    groups = sorted(
+        d.name for d in TESTS.iterdir() if d.is_dir() and d.name not in NOT_GROUPS
+    )
     for g in groups:
         if not any(is_test(p) for p in (TESTS / g).iterdir()):
             print(f"::error::the test group tests/{g} has no test file")

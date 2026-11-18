@@ -18,7 +18,9 @@ ARCHIVE = ".archive/"  # the kept shell scripts: inert, never checked as live co
 
 
 def tracked(pattern):
-    out = subprocess.run(["git", "ls-files", pattern], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["git", "ls-files", pattern], capture_output=True, text=True, check=True
+    ).stdout
     return [f for f in out.splitlines() if not f.startswith(ARCHIVE)]
 
 
@@ -26,34 +28,56 @@ def copied_paths(containerfile, contexts):
     """The repo paths a Containerfile copies in: COPY/ADD sources from the build context (the Containerfile's directory) and from a named `--build-context` (`contexts`: name
     to repo path, read from the Justfile). `--from=<stage>` is another stage, not the repo. Returns (paths, problems); what cannot be resolved is a problem, never ignored."""
     text = Path(containerfile).read_text().replace("\\\n", " ")
-    lines = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    stages = {w[3] for w in lines if w[0].upper() == "FROM" and len(w) > 3 and w[2].upper() == "AS"}
+    lines = [
+        line.split()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    stages = {
+        w[3]
+        for w in lines
+        if w[0].upper() == "FROM" and len(w) > 3 and w[2].upper() == "AS"
+    }
     root, paths, found = Path(containerfile).parent, [], []
     for words in lines:
-        if words[0].upper() == "RUN" and any(w.startswith("--mount=") and "type=bind" in w for w in words):
-            found.append(f"{containerfile}: RUN --mount=type=bind is not checked by sanity.py; extend copied_paths: {' '.join(words)}")
+        if words[0].upper() == "RUN" and any(
+            w.startswith("--mount=") and "type=bind" in w for w in words
+        ):
+            found.append(
+                f"{containerfile}: RUN --mount=type=bind is not checked by sanity.py; extend copied_paths: {' '.join(words)}"
+            )
         if words[0].upper() not in ("COPY", "ADD"):
             continue
         flags = [w for w in words[1:] if w.startswith("--")]
-        args = [w for w in words[1:] if not w.startswith("--")][:-1]  # the last argument is the destination
-        source = next((f.removeprefix("--from=") for f in flags if f.startswith("--from=")), None)
+        args = [w for w in words[1:] if not w.startswith("--")][
+            :-1
+        ]  # the last argument is the destination
+        source = next(
+            (f.removeprefix("--from=") for f in flags if f.startswith("--from=")), None
+        )
         if source in stages:
             continue
         if source is not None and source not in contexts:
-            found.append(f"{containerfile}: --from={source} is neither a stage nor a --build-context of the Justfile")
+            found.append(
+                f"{containerfile}: --from={source} is neither a stage nor a --build-context of the Justfile"
+            )
             continue
         base = Path(contexts[source]) if source else root
         for arg in args:
             if "$" in arg or arg.startswith(("http://", "https://", "<<")):
                 found.append(f"{containerfile}: cannot check the source '{arg}'")
             else:
-                paths.append(str(base / arg))  # Path drops a trailing "/." so `.` is the directory itself
+                paths.append(
+                    str(base / arg)
+                )  # Path drops a trailing "/." so `.` is the directory itself
     return paths, found
 
 
 def input_problems(justfile="Justfile"):
     """Every path a Containerfile copies in must be one of (or inside one of) the image's `ci.inputs`; a new image directory without inputs is a problem too."""
-    contexts = dict(re.findall(r"--build-context\s+(\w+)=(\S+)", Path(justfile).read_text()))
+    contexts = dict(
+        re.findall(r"--build-context\s+(\w+)=(\S+)", Path(justfile).read_text())
+    )
     found = []
     for containerfile in tracked("*/Containerfile"):
         directory = containerfile.split("/")[0]
@@ -82,7 +106,12 @@ def problems():
             compile(Path(f).read_text(), f, "exec")
         except SyntaxError as e:
             found.append(f"{f} does not compile: {e}")
-    for f in sorted([*Path(".github/workflows").glob("*.yml"), *Path(".github/actions").glob("*/action.yml")]):
+    for f in sorted(
+        [
+            *Path(".github/workflows").glob("*.yml"),
+            *Path(".github/actions").glob("*/action.yml"),
+        ]
+    ):
         try:
             yaml.safe_load(f.read_text())
         except yaml.YAMLError as e:

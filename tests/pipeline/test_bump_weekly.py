@@ -24,8 +24,15 @@ class World:
         self.db.mkdir()
         self.api.prs, self.api.created, self.api.closed = [], [], []
         self.origin, self.clone = self.tmp / "origin.git", self.tmp / "clone"
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "testing", str(self.origin)], check=True)
-        subprocess.run(["git", "clone", "-q", str(self.origin), str(self.clone)], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init", "-q", "--bare", "-b", "testing", str(self.origin)],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "clone", "-q", str(self.origin), str(self.clone)],
+            check=True,
+            capture_output=True,
+        )
         git(self.clone, "checkout", "-q", "-b", "testing")
         scripts = self.clone / ".github/scripts"
         scripts.mkdir(parents=True)
@@ -50,14 +57,25 @@ class World:
             "GIT_COMMITTER_EMAIL": "t@t",
             **env,
         }
-        return subprocess.run([sys.executable, "-I", ".github/scripts/bump_weekly.py"], cwd=self.clone, env=e, capture_output=True, text=True)
+        return subprocess.run(
+            [sys.executable, "-I", ".github/scripts/bump_weekly.py"],
+            cwd=self.clone,
+            env=e,
+            capture_output=True,
+            text=True,
+        )
 
     def lines(self, name):  # what the stub bump_checks.py recorded
         f = self.db / name
         return f.read_text().splitlines() if f.exists() else []
 
     def branches(self):
-        return git(self.origin, "for-each-ref", "--format=%(refname:short)", "refs/heads/bump/*").split()
+        return git(
+            self.origin,
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads/bump/*",
+        ).split()
 
     def open_prs(self, pin):
         return [p for p in self.api.prs if p["head"]["ref"].startswith(f"bump/{pin}-")]
@@ -72,11 +90,21 @@ def test_two_moved_pins_give_two_independent_branches_one_commit_one_line_each(w
     p = world.run(UPSTREAM_SCX="2", UPSTREAM_GHOSTTY="2")
     assert p.returncode == 0, p.stdout + p.stderr
     created = world.api.created
-    assert len(created) == 2 and not any("extest" in head for head, _ in created) and len(world.lines("checks")) == 2
-    assert "Bump scx: 1 to 2" in created[0][1] and all(len(title) <= 140 for _, title in created)
-    for b in world.branches():  # cut from testing: one commit, one changed pin line (no chain)
+    assert (
+        len(created) == 2
+        and not any("extest" in head for head, _ in created)
+        and len(world.lines("checks")) == 2
+    )
+    assert "Bump scx: 1 to 2" in created[0][1] and all(
+        len(title) <= 140 for _, title in created
+    )
+    for b in (
+        world.branches()
+    ):  # cut from testing: one commit, one changed pin line (no chain)
         assert git(world.origin, "rev-list", "--count", f"testing..{b}") == "1"
-        assert len(git(world.origin, "diff", "--numstat", "testing", b).splitlines()) == 1
+        assert (
+            len(git(world.origin, "diff", "--numstat", "testing", b).splitlines()) == 1
+        )
 
 
 def test_a_rerun_with_the_same_values_opens_and_closes_nothing(world):
@@ -95,18 +123,29 @@ def test_upstream_moved_again_replaces_that_pins_pr_only(world):
 def test_a_pin_testing_already_has_closes_its_open_pr_as_stale(world):
     world.run(UPSTREAM_GHOSTTY="2")
     git(world.clone, "checkout", "-q", "testing")
-    text = (world.clone / "pins.txt").read_text().replace("ghostty=1", "ghostty=2")  # the bump was merged
+    text = (
+        (world.clone / "pins.txt").read_text().replace("ghostty=1", "ghostty=2")
+    )  # the bump was merged
     (world.clone / "pins.txt").write_text(text)
     git(world.clone, "commit", "-q", "-am", "merged ghostty")
     git(world.clone, "push", "-q", "origin", "testing")
     p = world.run(UPSTREAM_GHOSTTY="2")
-    assert p.returncode == 0 and len(world.api.closed) == 1 and len(world.api.created) == 1 and world.open_prs("ghostty") == []
+    assert (
+        p.returncode == 0
+        and len(world.api.closed) == 1
+        and len(world.api.created) == 1
+        and world.open_prs("ghostty") == []
+    )
 
 
 def test_a_failing_pin_turns_the_run_red_and_the_others_still_go_in(world):
     p = world.run(UPSTREAM_SCX="fail", UPSTREAM_EXTEST="2", UPSTREAM_GHOSTTY="2")
     created = world.api.created
-    assert p.returncode == 1 and len(created) == 2 and not any("scx" in head for head, _ in created)
+    assert (
+        p.returncode == 1
+        and len(created) == 2
+        and not any("scx" in head for head, _ in created)
+    )
 
 
 def test_dry_run_lists_prs_and_pushes_and_creates_nothing(world):
@@ -118,4 +157,8 @@ def test_dry_run_lists_prs_and_pushes_and_creates_nothing(world):
 def test_a_real_run_from_a_checkout_that_is_not_origin_testing_is_refused(world):
     git(world.clone, "commit", "-q", "--allow-empty", "-m", "local")
     p = world.run(UPSTREAM_SCX="2")
-    assert p.returncode == 1 and "must start from origin/testing" in p.stderr and world.api.created == []
+    assert (
+        p.returncode == 1
+        and "must start from origin/testing" in p.stderr
+        and world.api.created == []
+    )

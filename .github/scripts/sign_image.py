@@ -27,7 +27,9 @@ def main(argv=None):
     try:
         with ci.group("sign, verify, then move testing"):
             registry.sign(f"{image}@{digest}")
-            registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}@{digest}"])  # the signature was written seconds ago
+            registry.cosign_check_fresh(
+                ["--key", "cosign.pub", f"{image}@{digest}"]
+            )  # the signature was written seconds ago
             registry.copy(f"{image}@{digest}", f"{image}:testing")
             registry.settled(image, "testing", digest)
             registry.cosign_check_fresh(
@@ -37,7 +39,10 @@ def main(argv=None):
         ci.log.error(str(e))
         return 1
     ci.log.info(f"signed: {image}:{args.version} and :testing = {digest}")
-    ci.append_to("GITHUB_STEP_SUMMARY", f"Binaries image {image.rsplit('/', 1)[-1]} {args.version}, signed and published as `testing` (digest `{digest}`)")
+    ci.append_to(
+        "GITHUB_STEP_SUMMARY",
+        f"Binaries image {image.rsplit('/', 1)[-1]} {args.version}, signed and published as `testing` (digest `{digest}`)",
+    )
     return 0
 
 

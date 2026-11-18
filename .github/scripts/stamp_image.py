@@ -34,7 +34,9 @@ def main(argv=None):
     ap.add_argument("revision", help="the full commit sha the image was built from")
     args = ap.parse_args(argv)
     created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with tempfile.TemporaryDirectory() as empty:  # an empty build context: the Containerfile copies nothing
+    with (
+        tempfile.TemporaryDirectory() as empty
+    ):  # an empty build context: the Containerfile copies nothing
         cmd = [
             *shlex.split(os.environ.get("PODMAN", "podman")),
             "build",
@@ -52,11 +54,18 @@ def main(argv=None):
             f"IMAGE_CREATED={created}",
             empty,
         ]
-        done = subprocess.run(cmd, input=CONTAINERFILE.format(image=args.image), text=True, stdout=subprocess.DEVNULL)
+        done = subprocess.run(
+            cmd,
+            input=CONTAINERFILE.format(image=args.image),
+            text=True,
+            stdout=subprocess.DEVNULL,
+        )
     if done.returncode:
         ci.log.error(f"stamping {args.image} failed")
         return 1
-    ci.log.info(f"stamped {args.image}: version {args.version}, revision {args.revision}, created {created}")
+    ci.log.info(
+        f"stamped {args.image}: version {args.version}, revision {args.revision}, created {created}"
+    )
     return 0
 
 
