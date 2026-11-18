@@ -17,8 +17,8 @@ stage="${STAGE_SH:-${here}/../lib/stage.sh}"
 (cd "${srcdir}" && cargo build --release --locked --target i686-unknown-linux-gnu)
 (cd "${srcdir}" && cargo build --release --locked --target x86_64-unknown-linux-gnu)
 "${stage}" --out "${out}" --env "${envfile}" --src "${srcdir}" \
-    --bin target/x86_64-unknown-linux-gnu/release/libextest.so:lib64/libextest.so \
-    --bin target/i686-unknown-linux-gnu/release/libextest.so:lib/libextest.so \
-    --license LICENSE:extest-LICENSE \
-    --elf-x86-64 lib64/libextest.so --elf-i386 lib/libextest.so \
-    --info 'targets: x86_64-unknown-linux-gnu (lib64/libextest.so), i686-unknown-linux-gnu (lib/libextest.so)'
+	--bin target/x86_64-unknown-linux-gnu/release/libextest.so:lib64/libextest.so \
+	--bin target/i686-unknown-linux-gnu/release/libextest.so:lib/libextest.so \
+	--license LICENSE:extest-LICENSE \
+	--elf-x86-64 lib64/libextest.so --elf-i386 lib/libextest.so \
+	--info 'targets: x86_64-unknown-linux-gnu (lib64/libextest.so), i686-unknown-linux-gnu (lib/libextest.so)'

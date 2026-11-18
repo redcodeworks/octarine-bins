@@ -11,24 +11,37 @@ dir="${1:?directory}"
 tsv="${2:?components.tsv}"
 comps=()
 while IFS=$'\t' read -r name _; do
-    [[ -n "${name}" && "${name}" != \#* ]] && comps+=("${name}")
-done < "${tsv}"
-[[ ${#comps[@]} -gt 0 ]] || { echo "assemble.sh: no component in ${tsv}" >&2; exit 1; }
+	[[ -n "${name}" && "${name}" != \#* ]] && comps+=("${name}")
+done <"${tsv}"
+[[ ${#comps[@]} -gt 0 ]] || {
+	echo "assemble.sh: no component in ${tsv}" >&2
+	exit 1
+}
 for c in "${comps[@]}"; do
-    for f in LICENSES SOURCE BUILDINFO; do
-        [[ -e "${dir}/${c}/${f}" ]] || { echo "assemble.sh: ${dir}/${c}/${f} is missing" >&2; exit 1; }
-    done
+	for f in LICENSES SOURCE BUILDINFO; do
+		[[ -e "${dir}/${c}/${f}" ]] || {
+			echo "assemble.sh: ${dir}/${c}/${f} is missing" >&2
+			exit 1
+		}
+	done
 done
 for d in "${dir}"/*/; do
-    [[ " ${comps[*]} " == *" $(basename "${d}") "* ]] || { echo "assemble.sh: ${d} is not listed in ${tsv}" >&2; exit 1; }
+	[[ " ${comps[*]} " == *" $(basename "${d}") "* ]] || {
+		echo "assemble.sh: ${d} is not listed in ${tsv}" >&2
+		exit 1
+	}
 done
 mkdir -p "${dir}/LICENSES"
 for c in "${comps[@]}"; do cp -a "${dir}/${c}/LICENSES/." "${dir}/LICENSES/"; done
 for f in SOURCE BUILDINFO; do
-    : > "${dir}/${f}"
-    for c in "${comps[@]}"; do
-        { echo "[${c}]"; cat "${dir}/${c}/${f}"; echo; } >> "${dir}/${f}"
-    done
+	: >"${dir}/${f}"
+	for c in "${comps[@]}"; do
+		{
+			echo "[${c}]"
+			cat "${dir}/${c}/${f}"
+			echo
+		} >>"${dir}/${f}"
+	done
 done
-printf '%s\n' "${comps[@]}" > "${dir}/COMPONENTS"
+printf '%s\n' "${comps[@]}" >"${dir}/COMPONENTS"
 echo "assembled: ${comps[*]}"

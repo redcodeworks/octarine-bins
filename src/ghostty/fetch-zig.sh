@@ -15,19 +15,22 @@ dest="${2:?destination directory}"
 curl_cmd=${CURL:-curl}
 index_url=${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}
 minisign_cmd=${MINISIGN:-minisign}
-die() { echo "::error::fetch-zig.sh: $*" >&2; exit 1; }
+die() {
+	echo "::error::fetch-zig.sh: $*" >&2
+	exit 1
+}
 
 declare -A v=()
 n=0
 while IFS= read -r line || [[ -n "${line}" ]]; do
-    n=$((n + 1))
-    [[ -z "${line//[[:space:]]/}" || "${line}" =~ ^[[:space:]]*# ]] && continue
-    [[ "${line}" =~ ^(ZIG_[A-Z0-9_]+)=([^[:space:]]*)$ ]] || die "${envfile}:${n}: not KEY=VALUE: ${line}"
-    key=${BASH_REMATCH[1]}
-    case "${key}" in ZIG_VERSION | ZIG_URL | ZIG_SHA256 | ZIG_SIZE | ZIG_SIGNATURE_URL | ZIG_MINISIGN_KEY) ;; *) die "${envfile}:${n}: unknown key ${key}" ;; esac
-    [[ -z "${v[${key}]:-}" ]] || die "${envfile}:${n}: duplicate key ${key}"
-    v[${key}]=${BASH_REMATCH[2]}
-done < "${envfile}"
+	n=$((n + 1))
+	[[ -z "${line//[[:space:]]/}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+	[[ "${line}" =~ ^(ZIG_[A-Z0-9_]+)=([^[:space:]]*)$ ]] || die "${envfile}:${n}: not KEY=VALUE: ${line}"
+	key=${BASH_REMATCH[1]}
+	case "${key}" in ZIG_VERSION | ZIG_URL | ZIG_SHA256 | ZIG_SIZE | ZIG_SIGNATURE_URL | ZIG_MINISIGN_KEY) ;; *) die "${envfile}:${n}: unknown key ${key}" ;; esac
+	[[ -z "${v[${key}]:-}" ]] || die "${envfile}:${n}: duplicate key ${key}"
+	v[${key}]=${BASH_REMATCH[2]}
+done <"${envfile}"
 for k in ZIG_VERSION ZIG_URL ZIG_SHA256 ZIG_SIGNATURE_URL ZIG_MINISIGN_KEY; do [[ -n "${v[${k}]:-}" ]] || die "${envfile}: ${k} is missing"; done
 ver=${v[ZIG_VERSION]}
 [[ "${ver}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || die "ZIG_VERSION '${ver}' is not a released version (0.X.Y)"
@@ -49,15 +52,15 @@ got=$(sha256sum "${work}/zig.tar.xz" | cut -d' ' -f1)
 "${curl_cmd}" -fsSL --retry 3 -o "${work}/index.json" "${index_url}" || die "cannot download ${index_url}"
 # the size is the one index.json lists for this version (also when zig.env pins none): the pinned sha256 and the index must agree on the real file
 jq -e --arg ver "${ver}" --arg url "${v[ZIG_URL]}" --arg sha "${v[ZIG_SHA256]}" --arg size "${size}" \
-    '.[$ver]["x86_64-linux"] | .tarball == $url and .shasum == $sha and (.size | tostring) == $size' "${work}/index.json" > /dev/null \
-    || die "index.json does not list ${ver} x86_64-linux with this URL, sha256 and size: the pin and upstream disagree (check before changing the pin)"
+	'.[$ver]["x86_64-linux"] | .tarball == $url and .shasum == $sha and (.size | tostring) == $size' "${work}/index.json" >/dev/null ||
+	die "index.json does not list ${ver} x86_64-linux with this URL, sha256 and size: the pin and upstream disagree (check before changing the pin)"
 
-if command -v "${minisign_cmd}" > /dev/null 2>&1; then
-    "${curl_cmd}" -fsSL --retry 3 -o "${work}/zig.tar.xz.minisig" "${v[ZIG_SIGNATURE_URL]}" || die "cannot download ${v[ZIG_SIGNATURE_URL]}"
-    "${minisign_cmd}" -V -m "${work}/zig.tar.xz" -x "${work}/zig.tar.xz.minisig" -P "${v[ZIG_MINISIGN_KEY]}" > /dev/null || die "the minisign signature of the tarball does not verify"
-    signature="minisign signature verified"
+if command -v "${minisign_cmd}" >/dev/null 2>&1; then
+	"${curl_cmd}" -fsSL --retry 3 -o "${work}/zig.tar.xz.minisig" "${v[ZIG_SIGNATURE_URL]}" || die "cannot download ${v[ZIG_SIGNATURE_URL]}"
+	"${minisign_cmd}" -V -m "${work}/zig.tar.xz" -x "${work}/zig.tar.xz.minisig" -P "${v[ZIG_MINISIGN_KEY]}" >/dev/null || die "the minisign signature of the tarball does not verify"
+	signature="minisign signature verified"
 else
-    signature="minisign NOT installed: only the sha256 pin and index.json were checked"
+	signature="minisign NOT installed: only the sha256 pin and index.json were checked"
 fi
 
 mkdir -p "${dest}"
@@ -65,5 +68,5 @@ tar -xJf "${work}/zig.tar.xz" -C "${dest}" --strip-components=1
 [[ -x "${dest}/zig" ]] || die "the tarball holds no zig executable"
 reported=$("${dest}/zig" version)
 [[ "${reported}" == "${ver}" ]] || die "zig reports ${reported}, expected ${ver}"
-printf 'zig %s from %s, sha256 %s, %s, sha256 equals ziglang.org/download/index.json\n' "${ver}" "${v[ZIG_URL]}" "${v[ZIG_SHA256]}" "${signature}" > "${dest}/FETCH-RECORD"
+printf 'zig %s from %s, sha256 %s, %s, sha256 equals ziglang.org/download/index.json\n' "${ver}" "${v[ZIG_URL]}" "${v[ZIG_SHA256]}" "${signature}" >"${dest}/FETCH-RECORD"
 cat "${dest}/FETCH-RECORD"
