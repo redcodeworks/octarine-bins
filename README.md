@@ -6,21 +6,16 @@ The few programs that [octarine-os](https://github.com/redcodeworks/octarine-os)
 - [extest](https://github.com/Supreeeme/extest), the `libextest.so` libraries that make Steam Input work on Wayland,
 - [Ghostty](https://ghostty.org), the terminal, built with its pinned Zig toolchain.
 
-Two more images follow the same pattern for the other octarine-os variants:
-
-- `octarine-bins-dx`: what the developer (dx) variant installs besides the base, currently the developer package lists (required and optional).
-- `octarine-bins-gx`: what the gaming (gx) variant installs besides the base, currently the gaming package lists, required and optional (Fedora packages, Steam from negativo17, Sunshine from COPR; no RPM Fusion).
-
-The base image also carries the package lists of the default octarine-os image. Each of the three is built, signed and published on its own.
+The build-time package lists of octarine-os live in the [octarine-os](https://github.com/redcodeworks/octarine-os) and [octarine-images](https://github.com/redcodeworks/octarine-images) repositories, not here.
 
 ## Build status
 
 | Workflow | main | testing |
 |---:|---:|---:|
-| binaries (base, dx, gx) | [![binaries, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Amain) | [![binaries, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Atesting) |
+| binaries | [![binaries, main](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=main)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Amain) | [![binaries, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/binaries.yml?query=branch%3Atesting) |
 | checks | not run on main | [![checks, testing](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml/badge.svg?branch=testing)](https://github.com/redcodeworks/octarine-bins/actions/workflows/test.yml?query=branch%3Atesting) |
 
-The binaries badge covers the build, signing and promotion of all three images (`octarine-bins`, `-dx`, `-gx`); each image moves its own `latest`. `dx` and `gx` carry package lists but no binaries yet.
+The binaries badge covers the build, signing and promotion of the image.
 
 ## Why
 
@@ -32,7 +27,7 @@ Nothing, if you only use octarine-os: its build picks the image up by itself. To
 
 ## Install and usage
 
-The image is not meant to be run. It is `FROM scratch` and holds one directory per program (`/scx`, `/extest`, `/ghostty`), the license texts and source records of each, and a list of the components. Every image also holds a `packages` directory with its package lists (required and optional) and the script that installs them. A consumer copies from it, for example by mounting it in a step of its own Containerfile:
+The image is not meant to be run. It is `FROM scratch` and holds one directory per program (`/scx`, `/extest`, `/ghostty`), the license texts and source records of each, and a list of the components. A consumer copies from it, for example by mounting it in a step of its own Containerfile:
 
 ```
 RUN --mount=type=bind,from=ghcr.io/redcodeworks/octarine-bins:latest,target=/binaries ...
@@ -59,7 +54,6 @@ Apache-2.0 for the code in this repository (see `LICENSE`). The programs it buil
 - [scx](https://github.com/sched-ext/scx) by the sched-ext authors.
 - [extest](https://github.com/Supreeeme/extest) by Supreeeme and contributors.
 - [Ghostty](https://github.com/ghostty-org/ghostty) by Mitchell Hashimoto and contributors, and [Zig](https://ziglang.org) by the Zig Software Foundation and contributors.
-- The packages the lists name come from Fedora, [negativo17](https://negativo17.org) (Steam) and the LizardByte COPR ([Sunshine](https://github.com/LizardByte/Sunshine)).
 
 ## Disclaimer
 
