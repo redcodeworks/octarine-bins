@@ -41,18 +41,24 @@ def say(line):
     ci.append_to("GITHUB_STEP_SUMMARY", f"- {line}")
 
 
+def parse_when(when):
+    """A datetime as it is, an ISO date string as a datetime; None when the string cannot be read."""
+    if not isinstance(when, str):
+        return when
+    try:
+        return datetime.fromisoformat(
+            re.sub(r"(\.\d{6})\d+", r"\1", when.replace("Z", "+00:00"))
+        )
+    except ValueError:
+        return None
+
+
 def days_since(when):
-    """Whole days since a datetime or an ISO date string; None when a string cannot be read."""
-    if isinstance(when, str):
-        try:
-            when = datetime.fromisoformat(
-                re.sub(r"(\.\d{6})\d+", r"\1", when.replace("Z", "+00:00"))
-            )
-        except ValueError:
-            return None
+    """Whole days since a datetime or an ISO date string; None when a string cannot be read (or has no time zone)."""
+    parsed = parse_when(when)
     return (
-        int((datetime.now(timezone.utc) - when).total_seconds() // 86400)
-        if when.tzinfo
+        int((datetime.now(timezone.utc) - parsed).total_seconds() // 86400)
+        if parsed and parsed.tzinfo
         else None
     )
 
@@ -74,11 +80,10 @@ def commit_pin(pin, files, subject, current, proposed, what, days):
     changed = git("diff", "--name-only").stdout.split()
     if not changed:
         raise Fail(f"the writer changed nothing for {proposed}")
-    for f in changed:
-        if f not in files:
-            raise Fail(
-                f"the writer changed {f}, which is not one of the pin files ({' '.join(files)})"
-            )
+    if stray := [f for f in changed if f not in files]:
+        raise Fail(
+            f"the writer changed {stray[0]}, which is not one of the pin files ({' '.join(files)})"
+        )
     p = git(
         "commit",
         "-q",
@@ -164,6 +169,19 @@ def bump_ghostty(root):
             return f"nothing to bump: {decision.line()}"
 
 
+def builder_created(repo, major):
+    """The creation date of the builder image's config, "" when it cannot be read."""
+    try:
+        return (
+            json.loads(
+                registry.read("config", f"{repo}:{major}", linux_amd64=True)
+            ).get("created")
+            or ""
+        )
+    except registry.Absent, registry.ReadError, ValueError:
+        return ""
+
+
 def bump_builder(root):
     path = "src/builder.env"
     m = BUILDER_PIN.fullmatch(pins.read_env(Path(root) / path).get("BUILDER", ""))
@@ -178,15 +196,7 @@ def bump_builder(root):
     new = "sha256:" + hashlib.sha256(manifest).hexdigest()
     if new == cur_digest:
         return f"nothing to bump: the pin is the current digest of {major}"
-    try:
-        created = (
-            json.loads(
-                registry.read("config", f"{repo}:{major}", linux_amd64=True)
-            ).get("created")
-            or ""
-        )
-    except registry.Absent, registry.ReadError, ValueError:
-        created = ""
+    created = builder_created(repo, major)
     if not created:
         raise Fail(f"cannot read the creation date of {repo}:{major}")
     age = days_since(created) or 0
@@ -249,11 +259,16 @@ def bump_python_deps(root):
     )
 
 
+def version_tuple(version):
+    """`3.14.10` as (3, 14, 10), comparable."""
+    return tuple(map(int, version.split(".")))
+
+
 def newest_python(listing, current):
     """The newest default CPython of the same minor as `current` (`3.14.10`) in `uv python list --output-format json`, or None."""
     want = tuple(current.split(".")[:2])
     found = {
-        tuple(int(x) for x in e["version"].split("."))
+        version_tuple(e["version"])
         for e in listing
         if e["implementation"] == "cpython"
         and e["variant"] == "default"
@@ -287,7 +302,7 @@ def bump_python(root):
     new = newest_python(json.loads(proc.stdout), current)
     if new is None:
         raise Fail(f"uv lists no CPython {'.'.join(current.split('.')[:2])}")
-    if tuple(map(int, new.split("."))) <= tuple(map(int, current.split("."))):
+    if version_tuple(new) <= version_tuple(current):
         return (
             f"nothing to bump: {current} is the newest patch release this uv installs"
         )

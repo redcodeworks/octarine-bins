@@ -37,6 +37,15 @@ def find_run(rest, repo, title):
     return next((r.id for r in runs if r.display_title == title), None)
 
 
+def wait_for_run(rest, repo, title, wait_s, poll):
+    """The id of the dispatched run once it appears, polled for `wait_s` seconds at most (a poll, not a retry: the run does not exist yet for a moment); None when it never does."""
+    for _ in range(0, wait_s, poll):
+        time.sleep(poll)
+        if (run_id := find_run(rest, repo, title)) is not None:
+            return run_id
+    return None
+
+
 def wait_for_completion(rest, repo, run_id, run_max, poll):
     """Poll the run until it is completed or `run_max` seconds have passed; returns the run or None."""
     deadline = time.monotonic() + run_max
@@ -81,13 +90,8 @@ def main(argv=None):
             workflow_id="test.yml", data={"ref": base, "inputs": {"ref": sha}}, **repo
         )
         ci.log.info(f"Dispatched the Test workflow on {base} for {sha[:7]} ({branch})")
-    waited = 0
-    while (
-        run_id is None and waited < wait_s
-    ):  # a poll, not a retry: the dispatched run does not exist yet for a moment
-        time.sleep(poll)
-        waited += poll
-        run_id = find_run(rest, repo, title)
+    if run_id is None:
+        run_id = wait_for_run(rest, repo, title, wait_s, poll)
     if run_id is None:
         warn(
             f"bump checks for {branch}: no Test run for {sha[:7]} found, nothing posted (re-run the bump workflow)"

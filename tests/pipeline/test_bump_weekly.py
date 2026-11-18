@@ -150,7 +150,7 @@ def test_a_failing_pin_turns_the_run_red_and_the_others_still_go_in(world):
 
 def test_dry_run_lists_prs_and_pushes_and_creates_nothing(world):
     p = world.run(DRY_RUN="1", UPSTREAM_SCX="2", UPSTREAM_EXTEST="2")
-    assert p.returncode == 0 and p.stdout.count("would open") == 2
+    assert p.returncode == 0 and p.stderr.count("would open") == 2
     assert world.api.created == [] and world.branches() == []
 
 

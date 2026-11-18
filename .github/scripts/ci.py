@@ -25,14 +25,14 @@ from packaging.version import InvalidVersion, Version
 
 
 class Annotations(logging.Handler):
-    """Writes log records the way the Actions runner reads them: `::error::` and `::warning::` lines (stderr), plain lines for info (stdout)."""
+    """Writes log records the way the Actions runner reads them (`::error::`, `::warning::`, plain for info), ALL to stderr: stdout is reserved for a script's
+    result (`result`, `emit`), so a caller that captures stdout (`x=$(script.py)`) gets the result and nothing else."""
 
     def emit(self, record):
         prefix = {logging.ERROR: "::error::", logging.WARNING: "::warning::"}.get(
             record.levelno, ""
         )
-        stream = sys.stderr if record.levelno >= logging.WARNING else sys.stdout
-        print(f"{prefix}{record.getMessage()}", file=stream, flush=True)
+        print(f"{prefix}{record.getMessage()}", file=sys.stderr, flush=True)
 
 
 log = logging.getLogger(
@@ -55,20 +55,24 @@ def append_to(env_var: str, line: str) -> None:
     """Append a line to the file named by an Actions variable (GITHUB_OUTPUT, GITHUB_STEP_SUMMARY), when set."""
     if path := os.environ.get(env_var):
         with Path(path).open("a") as f:
-            print(line, file=f)
+            f.write(f"{line}\n")
 
 
-def emit(key: str, value: str, note: str = "") -> None:
-    """Print `key=value` and export it as a step output."""
-    print(f"{key}={value}{note}")
+def result(line: str) -> None:
+    """THE write to stdout: the one result a script hands to its caller (a decision line, `key=value`). Everything else is a log message (`log.info`, ...)."""
+    print(line, flush=True)
+
+
+def emit(key: str, value: str) -> None:
+    """The result `key=value` on stdout, and the same as a step output."""
+    result(f"{key}={value}")
     append_to("GITHUB_OUTPUT", f"{key}={value}")
 
 
 def text(data: bytes | str, limit: int = 300) -> str:
     """Bytes or str -> a one-line snippet for a message."""
-    if isinstance(data, bytes):
-        data = data.decode(errors="replace")
-    return data[:limit].replace("\n", " ")
+    decoded = data.decode(errors="replace") if isinstance(data, bytes) else data
+    return decoded[:limit].replace("\n", " ")
 
 
 def int_env(name: str, default: int) -> int:
@@ -100,11 +104,11 @@ def git(*args: str) -> str:
 @contextlib.contextmanager
 def group(title: str):
     """A collapsible group in the Actions log: `with ci.group("sign"):`."""
-    print(f"::group::{title}", flush=True)
+    print(f"::group::{title}", file=sys.stderr, flush=True)
     try:
         yield
     finally:
-        print("::endgroup::", flush=True)
+        print("::endgroup::", file=sys.stderr, flush=True)
 
 
 class NetworkError(Exception):

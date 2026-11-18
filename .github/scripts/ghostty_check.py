@@ -155,7 +155,7 @@ def check(root):
 
 def main(argv=None):
     ci.arg_parser(__doc__).parse_args(argv)
-    ci.log.info(
+    ci.result(
         check(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]).line()
     )
     return 0

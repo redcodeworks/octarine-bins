@@ -65,22 +65,28 @@ def check(listing, schedulers, components):
         "COMPONENTS",
         "SOURCE",
     ]
-    problems = [
-        f"the binaries image lacks {name}" for name in needed if name not in files
-    ]
-    problems += [
-        f"the binaries image has no {c}/LICENSES"
-        for c in components
-        if not has_files_under(f"{c}/LICENSES/")
-    ]
-    if not has_files_under("LICENSES/"):
-        problems.append("the binaries image has no top-level LICENSES")
     allowed = {"SOURCE", "BUILDINFO", "COMPONENTS", "LICENSES", *components}
-    if extra := sorted({f.split("/")[0] for f in files} - allowed - {""}):
-        problems.append(
-            f"the binaries image holds unexpected top-level entries: {' '.join(extra)}"
-        )
-    return problems
+    extra = sorted({f.split("/")[0] for f in files} - allowed - {""})
+    return [
+        *(f"the binaries image lacks {name}" for name in needed if name not in files),
+        *(
+            f"the binaries image has no {c}/LICENSES"
+            for c in components
+            if not has_files_under(f"{c}/LICENSES/")
+        ),
+        *(
+            []
+            if has_files_under("LICENSES/")
+            else ["the binaries image has no top-level LICENSES"]
+        ),
+        *(
+            [
+                f"the binaries image holds unexpected top-level entries: {' '.join(extra)}"
+            ]
+            if extra
+            else []
+        ),
+    ]
 
 
 def export_listing(image):
