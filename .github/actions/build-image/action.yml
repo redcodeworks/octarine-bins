@@ -76,7 +76,7 @@ runs:
       env:
         IMAGE: ${{ steps.names.outputs.image }}
         DIR: ${{ inputs.dir }}
-      run: uv run --frozen --no-dev python -I .github/scripts/binaries_skip.py "${IMAGE}" "${DIR}"
+      run: uv run --frozen --no-dev python -I .github/scripts/10-plan/binaries_skip.py "${IMAGE}" "${DIR}"
 
     - name: Set up just
       if: steps.skip.outputs.skip != 'true'
