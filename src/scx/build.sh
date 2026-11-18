@@ -17,36 +17,57 @@ out="${4:?out dir}"
 stage="${STAGE_SH:-${here}/../lib/stage.sh}"
 
 mapfile -t rows < <(grep -vE '^[[:space:]]*(#|$)' "${list}" || true)
-[[ ${#rows[@]} -gt 0 ]] || { echo "build.sh: no scheduler in ${list}" >&2; exit 1; }
+[[ ${#rows[@]} -gt 0 ]] || {
+	echo "build.sh: no scheduler in ${list}" >&2
+	exit 1
+}
 
 names=() pkgs=() args=() manifest=()
 for row in "${rows[@]}"; do
-    fields=$(awk -F'\t' '{print NF}' <<<"${row}")
-    [[ "${fields}" == 3 ]] || { echo "build.sh: '${row}' must have exactly three tab separated fields (name, minimum kernel, description)" >&2; exit 1; }
-    n=$(awk -F'\t' '{print $1}' <<<"${row}")
-    kernel=$(awk -F'\t' '{print $2}' <<<"${row}")
-    desc=$(awk -F'\t' '{print $3}' <<<"${row}")
-    [[ "${n}" =~ ^[a-z0-9_]+$ ]] || { echo "build.sh: bad scheduler name '${n}'" >&2; exit 1; }
-    [[ " ${names[*]:-} " != *" ${n} "* ]] || { echo "build.sh: duplicate scheduler: ${n}" >&2; exit 1; }
-    [[ -z "${kernel}" || "${kernel}" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "build.sh: ${n}: minimum kernel must be MAJOR.MINOR or empty (got '${kernel}')" >&2; exit 1; }
-    [[ -n "${desc}" && "${desc}" != " "* && "${desc}" != *" " && ${#desc} -le 120 ]] || { echo "build.sh: ${n}: the description must be one non-empty line of at most 120 characters" >&2; exit 1; }
-    names+=("${n}")
-    pkgs+=(-p "${n}")
-    args+=(--bin "target/release/${n}:bin/${n}" --smoke "bin/${n}:--version")
-    sdir=$(find "${srcdir}/scheds" -mindepth 2 -maxdepth 2 -type d -name "${n}" | head -n1)
-    [[ -n "${sdir}" ]] || { echo "build.sh: ${n} is not a scheduler directory under scheds/ of the source" >&2; exit 1; }
-    # most scheduler directories carry their own LICENSE (copied next to the repository LICENSE); scx_cake's does not, and the
-    # repository LICENSE (GPL-2.0) covers it, so a missing file is a note, not an error
-    if [[ -s "${sdir}/LICENSE" ]]; then
-        args+=(--license "${sdir#"${srcdir}/"}/LICENSE:${n}-LICENSE")
-    else
-        echo "build.sh: ${n} has no LICENSE of its own; the repository LICENSE covers it"
-    fi
-    manifest+=("$(printf '%s\t%s\t%s\t%s' "${n}" "bin/${n}" "${kernel}" "${desc}")")
+	fields=$(awk -F'\t' '{print NF}' <<<"${row}")
+	[[ "${fields}" == 3 ]] || {
+		echo "build.sh: '${row}' must have exactly three tab separated fields (name, minimum kernel, description)" >&2
+		exit 1
+	}
+	n=$(awk -F'\t' '{print $1}' <<<"${row}")
+	kernel=$(awk -F'\t' '{print $2}' <<<"${row}")
+	desc=$(awk -F'\t' '{print $3}' <<<"${row}")
+	[[ "${n}" =~ ^[a-z0-9_]+$ ]] || {
+		echo "build.sh: bad scheduler name '${n}'" >&2
+		exit 1
+	}
+	[[ " ${names[*]:-} " != *" ${n} "* ]] || {
+		echo "build.sh: duplicate scheduler: ${n}" >&2
+		exit 1
+	}
+	[[ -z "${kernel}" || "${kernel}" =~ ^[0-9]+\.[0-9]+$ ]] || {
+		echo "build.sh: ${n}: minimum kernel must be MAJOR.MINOR or empty (got '${kernel}')" >&2
+		exit 1
+	}
+	[[ -n "${desc}" && "${desc}" != " "* && "${desc}" != *" " && ${#desc} -le 120 ]] || {
+		echo "build.sh: ${n}: the description must be one non-empty line of at most 120 characters" >&2
+		exit 1
+	}
+	names+=("${n}")
+	pkgs+=(-p "${n}")
+	args+=(--bin "target/release/${n}:bin/${n}" --smoke "bin/${n}:--version")
+	sdir=$(find "${srcdir}/scheds" -mindepth 2 -maxdepth 2 -type d -name "${n}" | head -n1)
+	[[ -n "${sdir}" ]] || {
+		echo "build.sh: ${n} is not a scheduler directory under scheds/ of the source" >&2
+		exit 1
+	}
+	# most scheduler directories carry their own LICENSE (copied next to the repository LICENSE); scx_cake's does not, and the
+	# repository LICENSE (GPL-2.0) covers it, so a missing file is a note, not an error
+	if [[ -s "${sdir}/LICENSE" ]]; then
+		args+=(--license "${sdir#"${srcdir}/"}/LICENSE:${n}-LICENSE")
+	else
+		echo "build.sh: ${n} has no LICENSE of its own; the repository LICENSE covers it"
+	fi
+	manifest+=("$(printf '%s\t%s\t%s\t%s' "${n}" "bin/${n}" "${kernel}" "${desc}")")
 done
 
 (cd "${srcdir}" && cargo build --release --locked "${pkgs[@]}")
 "${stage}" --out "${out}" --env "${envfile}" --src "${srcdir}" --license "LICENSE:scx-LICENSE" "${args[@]}" \
-    --info "schedulers: ${names[*]}"
-printf '%s\n' "${manifest[@]}" > "${out}/schedulers.tsv"
+	--info "schedulers: ${names[*]}"
+printf '%s\n' "${manifest[@]}" >"${out}/schedulers.tsv"
 echo "schedulers.tsv: ${#manifest[@]} schedulers"
