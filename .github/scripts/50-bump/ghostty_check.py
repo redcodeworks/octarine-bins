@@ -38,7 +38,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent / "00-lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "00-lib"))
 import ci  # noqa: E402
 import pins  # noqa: E402
 from pins import Decision  # noqa: E402
@@ -222,7 +222,7 @@ def main(argv=None):
     """
     ci.arg_parser(__doc__).parse_args(argv)
     ci.result(
-        check(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]).line()
+        check(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[3]).line()
     )
     return 0
 
