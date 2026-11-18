@@ -49,7 +49,7 @@ jobs:
 
       - name: List the test groups
         id: plan
-        run: python3 -I .github/scripts/plan_tests.py
+        run: python3 -I .github/scripts/60-check/plan_tests.py
 
   # a parse of the shell scripts, Python files and workflow files, and the Justfile format
   sanity:
@@ -68,7 +68,7 @@ jobs:
         uses: ./.github/actions/setup-ci-python
 
       - name: Sanity checks
-        run: uv run --frozen python -I .github/scripts/sanity.py
+        run: uv run --frozen python -I .github/scripts/60-check/sanity.py
 
       - name: Set up just
         uses: ./.github/actions/setup-tool

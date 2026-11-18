@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-TESTS = Path(__file__).resolve().parents[2] / "tests"
+TESTS = Path(__file__).resolve().parents[3] / "tests"
 NOT_GROUPS = {"fakes", "__pycache__"}
 
 
