@@ -27,6 +27,29 @@ import pins  # noqa: E402
 from pins import Decision  # noqa: E402
 
 
+def latest_ref(rest, owner, name, tag_fallback):
+    """The tag of the latest release; a project without a release object (404) falls back to its newest tag when `tag_fallback`; "" when there is nothing."""
+    try:
+        return rest.repos.get_latest_release(owner, name).parsed_data.tag_name
+    except RequestFailed as e:
+        if e.response.status_code != 404:
+            raise
+    if not tag_fallback:
+        return ""
+    tags = rest.repos.list_tags(owner, name).parsed_data
+    return tags[0].name if tags else ""
+
+
+def fork_status(rest, owner, name, commit, branch):
+    """How the fork's default branch compares with the commit (ahead, identical, ...); "missing" when the fork does not have the commit at all (404)."""
+    try:
+        return rest.repos.compare_commits(owner, name, f"{commit}...{branch}").parsed_data.status
+    except RequestFailed as e:
+        if e.response.status_code != 404:
+            raise
+        return "missing"
+
+
 def check(root, directory):
     """The decision for the component in `directory` (for example src/scx)."""
     pin = pins.load_upstream(Path(root) / directory / "upstream.env")
@@ -35,15 +58,7 @@ def check(root, directory):
     gh = ci.github()  # keep the client: gh.rest only holds a weak reference to it
     rest = gh.rest
 
-    try:
-        latest = rest.repos.get_latest_release(owner, name).parsed_data.tag_name
-    except RequestFailed as e:
-        if e.response.status_code != 404:
-            raise
-        latest = ""  # 404: the project has no release object (a commit-pinned project may still have tags)
-    if not latest and (not tag or repo != fork):
-        tags = rest.repos.list_tags(owner, name).parsed_data
-        latest = tags[0].name if tags else ""
+    latest = latest_ref(rest, owner, name, tag_fallback=not tag or repo != fork)
     if not latest:
         if tag and repo == fork:
             raise ValueError(f"{repo} has no release but {directory} pins the tag {tag}")
@@ -70,12 +85,7 @@ def check(root, directory):
         # that only exist elsewhere in the fork network)
         fork_owner, fork_name = fork.split("/")
         branch = rest.repos.get(fork_owner, fork_name).parsed_data.default_branch
-        try:
-            fstatus = rest.repos.compare_commits(fork_owner, fork_name, f"{commit}...{branch}").parsed_data.status
-        except RequestFailed as e:
-            if e.response.status_code != 404:
-                raise
-            fstatus = "missing"  # 404: the fork does not have the commit at all
+        fstatus = fork_status(rest, fork_owner, fork_name, commit, branch)
         if fstatus in ("ahead", "identical"):
             return Decision("bump", tag=latest, commit=commit)
         return Decision("forkbehind", tag=latest, commit=commit, text=f"the fork {fork} is behind {repo}: {latest} is not in {fork}/{branch}")
@@ -89,7 +99,7 @@ def main(argv=None):
     ap.add_argument("directory", help="component directory, for example src/scx")
     args = ap.parse_args(argv)
     root = os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]
-    ci.log.info(check(root, args.directory).line())
+    ci.result(check(root, args.directory).line())
     return 0
 
 

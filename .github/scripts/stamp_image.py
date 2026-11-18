@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from itertools import chain
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -34,6 +35,7 @@ def main(argv=None):
     ap.add_argument("revision", help="the full commit sha the image was built from")
     args = ap.parse_args(argv)
     created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    build_args = {"IMAGE_VERSION": args.version, "IMAGE_REVISION": args.revision, "IMAGE_CREATED": created}
     with tempfile.TemporaryDirectory() as empty:  # an empty build context: the Containerfile copies nothing
         cmd = [
             *shlex.split(os.environ.get("PODMAN", "podman")),
@@ -44,12 +46,7 @@ def main(argv=None):
             "-",
             "--tag",
             args.image,
-            "--build-arg",
-            f"IMAGE_VERSION={args.version}",
-            "--build-arg",
-            f"IMAGE_REVISION={args.revision}",
-            "--build-arg",
-            f"IMAGE_CREATED={created}",
+            *chain.from_iterable(("--build-arg", f"{key}={value}") for key, value in build_args.items()),
             empty,
         ]
         done = subprocess.run(cmd, input=CONTAINERFILE.format(image=args.image), text=True, stdout=subprocess.DEVNULL)

@@ -68,14 +68,17 @@ def settled(image, tag, want):
     """Read a tag back after a write until it shows the expected digest: the registry may answer right after a push or copy with the PREVIOUS manifest of the tag (seen on GHCR
     2026-11-14), or fail the read for a moment. Reads READBACK_TRIES (6) times, READBACK_WAIT (5) seconds apart; raises ReadError naming what it saw (digest, absent, unreadable)."""
 
+    def shown():
+        try:
+            return "sha256:" + hashlib.sha256(inspect_once("raw", f"{image}:{tag}")).hexdigest()
+        except Absent:
+            return "absent"
+        except ReadError:
+            return "unreadable"
+
     @ci.retry(attempts=ci.int_env("READBACK_TRIES", 6), delay=ci.int_env("READBACK_WAIT", 5), backoff=False, on=(ReadError,))
     def read_back():
-        try:
-            got = "sha256:" + hashlib.sha256(inspect_once("raw", f"{image}:{tag}")).hexdigest()
-        except Absent:
-            got = "absent"
-        except ReadError:
-            got = "unreadable"
+        got = shown()
         if got != want:
             raise ReadError(f"{image}:{tag} is {got}, expected {want}")
 

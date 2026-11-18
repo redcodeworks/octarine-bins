@@ -119,7 +119,12 @@ def write_ghostty(directory, tag, commit, zig_version, zig_url, zig_sha256, zig_
     ):
         raise ValueError("the Zig arguments are not an official x86_64-linux release entry")
     set_upstream(directory / "upstream.env", tag, commit)
-    values = {"ZIG_VERSION": zig_version, "ZIG_URL": zig_url, "ZIG_SHA256": zig_sha256, "ZIG_SIZE": str(zig_size), "ZIG_SIGNATURE_URL": f"{zig_url}.minisig"}
-    if "ZIG_SIZE" not in read_env(directory / "zig.env"):  # not pinned today: the size must equal the one index.json lists, so there is no line to write
-        del values["ZIG_SIZE"]
+    size_pinned = "ZIG_SIZE" in read_env(directory / "zig.env")  # not pinned today: the size must equal the one index.json lists, so there is no line to write
+    values = {
+        "ZIG_VERSION": zig_version,
+        "ZIG_URL": zig_url,
+        "ZIG_SHA256": zig_sha256,
+        **({"ZIG_SIZE": str(zig_size)} if size_pinned else {}),
+        "ZIG_SIGNATURE_URL": f"{zig_url}.minisig",
+    }
     set_lines(directory / "zig.env", values)

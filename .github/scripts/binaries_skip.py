@@ -51,7 +51,8 @@ def main(argv=None):
     except registry.ReadError as e:
         ci.log.error(f"{e}: not deciding on a guess")
         return 1
-    ci.emit("skip", str(skip).lower(), f" ({reason})")
+    ci.log.info(reason)
+    ci.emit("skip", str(skip).lower())
     return 0
 
 

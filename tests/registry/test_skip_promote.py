@@ -86,6 +86,13 @@ def test_skip_rule_per_image(fakes, tested, repo, edit, directory, unchanged):
     assert p.returncode == 0 and out == f"skip={str(unchanged).lower()}", p.stderr
 
 
+def test_stdout_holds_only_the_result(fakes, tested, repo):
+    """A caller may capture stdout (`x=$(script.py)`): the reason and every other log line go to stderr, stdout is the result line alone."""
+    r, rev = repo
+    p, _ = skip(r, rev)
+    assert p.stdout == "skip=true\n" and "same inputs" in p.stderr
+
+
 def test_skip_false_when_testing_does_not_verify(fakes, tested, repo):
     r, rev = repo
     p, out = skip(r, rev, COSIGN_MODE="nosig")

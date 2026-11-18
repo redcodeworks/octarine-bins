@@ -53,14 +53,19 @@ def acceptable(image, directory):
     return tested
 
 
-def promote(image, directory):
-    tested = acceptable(image, directory)
+def latest_digest(image):
+    """The digest `latest` shows now, or None when there is no `latest` yet."""
     try:
-        current = registry.digest(image, "latest")
+        return registry.digest(image, "latest")
     except registry.Absent:
-        current = None
+        return None
     except registry.ReadError as e:
         raise Fail(f"{image}:latest could not be read ({e})")
+
+
+def promote(image, directory):
+    tested = acceptable(image, directory)
+    current = latest_digest(image)
     if current == tested:
         ci.log.info(f"latest already is the tested image {tested}: nothing to promote")
         ci.emit("changed", "false")
