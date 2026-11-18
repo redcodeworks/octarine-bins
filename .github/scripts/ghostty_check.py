@@ -12,6 +12,7 @@ The Zig MINOR follows from the Ghostty tag, never independently: for a new tag t
 published patch of that minor comes from ziglang.org/download/index.json (x86_64-linux tarball, shasum, size). Ghostty's build accepts the same major.minor with any patch >= the
 minimum, so the newest published patch of that minor goes in with the tag. A Zig release alone never causes a bump. Reads upstream.env and zig.env of src/ghostty. Only reads. Anything that cannot be read (a GitHub API error, the Zig index, a pin that is not a release version) ends the script with its own error; nothing is guessed.
 """
+
 import base64
 import json
 import os
@@ -43,6 +44,7 @@ class ZigRelease(BaseModel):
 
 class ZigIndex(RootModel):
     """ziglang.org/download/index.json (untrusted): release name -> its x86_64 Linux tarball, when there is one."""
+
     root: dict[str, ZigRelease]
 
 
@@ -95,12 +97,20 @@ def check(root):
         minor = minimum.rsplit(".", 1)[0]
         patches = [v for v in index.root if re.fullmatch(re.escape(minor) + r"\.[0-9]+", v) and tarball(v).tarball]
         if not patches:
-            return Decision("wait", tag=latest, text=f"{latest} needs Zig {minor} (minimum {minimum}) and ziglang.org/download/index.json lists no x86_64-linux tarball of {minor}.x yet")
+            return Decision(
+                "wait",
+                tag=latest,
+                text=f"{latest} needs Zig {minor} (minimum {minimum}) and ziglang.org/download/index.json lists no x86_64-linux tarball of {minor}.x yet",
+            )
         zv = max(patches, key=ci.version)
         if ci.version(minimum) > ci.version(zv):
             return Decision("wait", tag=latest, text=f"{latest} needs Zig {minimum} or newer and the newest published {minor} is {zv}")
         entry = tarball(zv)
-        if not (entry.tarball == f"https://ziglang.org/download/{zv}/zig-x86_64-linux-{zv}.tar.xz" and re.fullmatch(r"[0-9a-f]{64}", entry.shasum) and re.fullmatch(r"[0-9]+", str(entry.size))):
+        if not (
+            entry.tarball == f"https://ziglang.org/download/{zv}/zig-x86_64-linux-{zv}.tar.xz"
+            and re.fullmatch(r"[0-9a-f]{64}", entry.shasum)
+            and re.fullmatch(r"[0-9]+", str(entry.size))
+        ):
             raise ValueError(f"index.json has no official x86_64-linux tarball entry for {zv}")
         return Decision("bump", tag=latest, commit=commit, zig=zv, zig_url=entry.tarball, zig_sha256=entry.shasum, zig_size=str(entry.size))
 

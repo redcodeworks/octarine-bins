@@ -1,4 +1,5 @@
 """sanity.py skips the .archive/ folder (the kept shell scripts are inert), and still finds a broken live script."""
+
 import os
 import subprocess
 
@@ -30,7 +31,14 @@ def test_the_real_containerfiles_copy_only_listed_inputs():
 
 
 def test_a_copy_of_an_unlisted_path_is_found(tmp_path, monkeypatch):
-    tracked_repo(tmp_path, {"src/Containerfile": "FROM x AS a\nCOPY --from=a /out /out\nCOPY lib /l\nCOPY --from=extra extra.txt /e\n",
-                            "Justfile": "--build-context extra=tools\n"})
+    tracked_repo(
+        tmp_path,
+        {
+            "src/Containerfile": "FROM x AS a\nCOPY --from=a /out /out\nCOPY lib /l\nCOPY --from=extra extra.txt /e\n",
+            "Justfile": "--build-context extra=tools\n",
+        },
+    )
     monkeypatch.chdir(tmp_path)
-    assert sanity.input_problems() == ["src/Containerfile copies 'tools/extra.txt', which is not in ci.inputs('src'): a change to it would not rebuild the image"]
+    assert sanity.input_problems() == [
+        "src/Containerfile copies 'tools/extra.txt', which is not in ci.inputs('src'): a change to it would not rebuild the image"
+    ]

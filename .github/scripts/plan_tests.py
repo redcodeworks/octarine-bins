@@ -4,6 +4,7 @@
 Prints the groups as a JSON array and, with GITHUB_OUTPUT set, as `groups=<json>`. Fails when a test file (test_*.py or *.sh) sits outside a group, where nothing would run it,
 or when a group directory holds no test file. tests/fakes is not a group (shared fakes). Run: python3 -I .github/scripts/plan_tests.py
 """
+
 import json
 import os
 import sys

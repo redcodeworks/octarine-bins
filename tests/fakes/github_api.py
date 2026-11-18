@@ -1,4 +1,5 @@
 """A fake GitHub REST API on 127.0.0.1 (stdlib http.server in a thread): GET answers come from `routes` (404 for anything else), the pull request endpoints keep their state, and `drop` closes the next N connections without an answer (a transport error)."""
+
 import json
 import re
 import threading
@@ -24,12 +25,12 @@ def pull(number, ref):
 
 class FakeGitHub:
     def __init__(self):
-        self.routes = {}      # path -> JSON answer of a GET
-        self.prs = []         # open pull requests (full answers, see pull())
-        self.created = []     # (head, title) of every pull request opened
-        self.closed = []      # numbers of the pull requests closed
-        self.requests = []    # (method, path) of every request seen
-        self.drop = 0         # close this many next connections without answering
+        self.routes = {}  # path -> JSON answer of a GET
+        self.prs = []  # open pull requests (full answers, see pull())
+        self.created = []  # (head, title) of every pull request opened
+        self.closed = []  # numbers of the pull requests closed
+        self.requests = []  # (method, path) of every request seen
+        self.drop = 0  # close this many next connections without answering
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()

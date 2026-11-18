@@ -8,6 +8,7 @@ The same definition of content as binaries_skip.py: a push that did not change i
 Afterwards the tag is read back until it shows the digest, and the signature is verified through `latest`. Run it in a git checkout (the revision is fetched when missing).
 `--check` runs only those checks (the same code) and writes nothing: the promotion PR's `Promotable:` jobs use it, on the PR's merge result, which is what main will contain.
 """
+
 import json
 import re
 import sys
@@ -36,7 +37,7 @@ def acceptable(image, directory):
         raise Fail(f"{image}@{tested} could not be verified (a read error, not a bad signature): {e}")
     try:
         config = json.loads(registry.read_by_digest("config", image, tested))
-    except (registry.Absent, registry.ReadError, ValueError):
+    except registry.Absent, registry.ReadError, ValueError:
         raise Fail(f"the config of {image}@{tested} could not be read")
     rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""
     if not re.fullmatch(r"[0-9a-f]{40}", rev):
@@ -45,8 +46,10 @@ def acceptable(image, directory):
         raise Fail(f"the revision {rev} of {image}:testing cannot be fetched")
     built, this = ci.content_id(rev, directory), ci.content_id("HEAD", directory)
     if built != this:
-        raise Fail(f"testing was built from {rev}, whose content differs from this checkout's ({' '.join(ci.inputs(directory))}): the build on testing is running, failed, "
-                   "or testing moved on; re-run promote when the tip's build is green")
+        raise Fail(
+            f"testing was built from {rev}, whose content differs from this checkout's ({' '.join(ci.inputs(directory))}): the build on testing is running, failed, "
+            "or testing moved on; re-run promote when the tip's build is green"
+        )
     return tested
 
 

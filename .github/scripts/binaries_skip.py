@@ -6,6 +6,7 @@ equals that at the commit the current `testing` image was built from (its label 
 inputs, or an image that does not verify (a signature of an old key, a failed signing) all mean skip=false: build. Only a READ ERROR (registry or cosign could not be
 asked) fails the script (exit 1): a build must not be skipped or forced on a guess. The job that calls this always succeeds, so the required check names always report.
 """
+
 import json
 import re
 import sys

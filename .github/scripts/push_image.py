@@ -6,6 +6,7 @@ may still answer with the previous manifest). A tag that already exists is never
 existing digest is kept and used, which is the image that passed the layout check and may already be signed. Other tags (`testing`, `latest`) are never pushed from here: they are registry-side copies of this digest made after it was signed.
 Prints `digests=<digest>` and appends it to $GITHUB_OUTPUT. Tools: podman, skopeo.
 """
+
 import sys
 from pathlib import Path
 

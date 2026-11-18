@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Stub of bump_run.py for the weekly test: moves its pin in pins.txt to $UPSTREAM_<PIN> (fail = a failing check) in one commit that ends with the table row."""
+
 import os
 import re
 import subprocess

@@ -1,6 +1,7 @@
 """The image layout, writer into reader: the REAL assembler (src/lib/assemble.sh, the `assemble` stage of src/Containerfile) writes COMPONENTS and the combined
 LICENSES/SOURCE/BUILDINFO around fake component directories, and the layout checker reads the listing of the result with the component list of the real
 src/components.tsv and the real scheduler manifest. The layout is what octarine-os's installer reads."""
+
 import shutil
 import subprocess
 
@@ -25,7 +26,16 @@ def listing(img):
 def img(tmp_path):
     """A component tree as the build stages leave it, assembled by the real assemble.sh."""
     d = tmp_path / "img"
-    for sub in ("scx/bin", "scx/LICENSES", "extest/lib", "extest/lib64", "extest/LICENSES", "ghostty/root/usr/bin", "ghostty/root/usr/share/applications", "ghostty/LICENSES"):
+    for sub in (
+        "scx/bin",
+        "scx/LICENSES",
+        "extest/lib",
+        "extest/lib64",
+        "extest/LICENSES",
+        "ghostty/root/usr/bin",
+        "ghostty/root/usr/share/applications",
+        "ghostty/LICENSES",
+    ):
         (d / sub).mkdir(parents=True)
     for n in SCHEDULERS:
         (d / "scx/bin" / n).write_text("#!/bin/sh\n")
@@ -65,11 +75,14 @@ def add_stray_directory(img):
     (img / "stray/file").write_text("x")
 
 
-@pytest.mark.parametrize("mutate,expected", [
-    (remove_scheduler, f"the binaries image lacks scx/bin/{SCHEDULERS[0]}"),  # named after the real manifest
-    (remove_components_file, "the binaries image lacks COMPONENTS"),
-    (add_stray_directory, "the binaries image holds unexpected top-level entries: stray"),
-])
+@pytest.mark.parametrize(
+    "mutate,expected",
+    [
+        (remove_scheduler, f"the binaries image lacks scx/bin/{SCHEDULERS[0]}"),  # named after the real manifest
+        (remove_components_file, "the binaries image lacks COMPONENTS"),
+        (add_stray_directory, "the binaries image holds unexpected top-level entries: stray"),
+    ],
+)
 def test_a_damaged_image_fails_and_names_the_problem(img, mutate, expected):
     mutate(img)
     assert problems(img) == [expected]

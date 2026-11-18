@@ -1,4 +1,5 @@
 """The readers that keep "could not read" apart from "is not there" (registry.py and the scripts around it), with fake skopeo and cosign."""
+
 import hashlib
 
 import pytest
@@ -104,7 +105,9 @@ def test_a_tag_that_cosign_cannot_see_yet_is_a_read_error_never_not_verified(fak
 def test_sign_image_waits_out_the_lag_before_it_verifies(fakes, tmp_path, monkeypatch):
     (open(fakes["STATE"] + "/testing", "w")).write("tested")
     digest = "sha256:" + hashlib.sha256(b"tested").hexdigest()
-    p = script("sign_image.py", "ghcr.io/o/i", "v", digest, cwd=tmp_path, extra={"COSIGN_PRIVATE_KEY": "k", "LAG_FILE": str(tmp_path / "lag"), "COSIGN_LAG": "2"})
+    p = script(
+        "sign_image.py", "ghcr.io/o/i", "v", digest, cwd=tmp_path, extra={"COSIGN_PRIVATE_KEY": "k", "LAG_FILE": str(tmp_path / "lag"), "COSIGN_LAG": "2"}
+    )
     assert p.returncode == 0, p.stderr
     assert int((tmp_path / "lag").read_text()) == 4  # two verifies lagged, the two real ones passed
 

@@ -14,6 +14,7 @@ the fork to contain the new commit. Tag pin: the latest release (not a draft or 
 UPSTREAM_TAG): the latest release, else the newest tag, counts only when it is NOT an ancestor of (or equal to) the pinned commit (compare status ahead or
 diverged), so a release behind the pin, such as the one extest's pin sits one commit after, is never "newer". Only reads; nothing is written.
 """
+
 import os
 import sys
 from pathlib import Path

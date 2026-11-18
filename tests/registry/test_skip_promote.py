@@ -1,4 +1,5 @@
 """The build skip and the promotion, with real git repositories, a fake registry (a directory of tags) and fake skopeo and cosign."""
+
 import hashlib
 from pathlib import Path
 
@@ -15,9 +16,21 @@ def repo(tmp_path):
     r = tmp_path / "repo"
     r.mkdir()
     git(r, "init", "-q")
-    files = {"src/Containerfile": "c", "src/f": "one", "src/lib/assemble.sh": "a1", "src/lib/stage.sh": "s1", "src/NOTES.md": "n", "src/builder.env": "b",
-             "README.md": "doc", "Justfile": "j", "tests/t.py": "t", ".github/workflows/binaries.yml": "wf",
-             ".github/actions/build-image/action.yml": "ba", ".github/scripts/push_image.py": "p", ".github/scripts/binaries_layout.py": "l"}
+    files = {
+        "src/Containerfile": "c",
+        "src/f": "one",
+        "src/lib/assemble.sh": "a1",
+        "src/lib/stage.sh": "s1",
+        "src/NOTES.md": "n",
+        "src/builder.env": "b",
+        "README.md": "doc",
+        "Justfile": "j",
+        "tests/t.py": "t",
+        ".github/workflows/binaries.yml": "wf",
+        ".github/actions/build-image/action.yml": "ba",
+        ".github/scripts/push_image.py": "p",
+        ".github/scripts/binaries_layout.py": "l",
+    }
     for name, content in files.items():
         (r / name).parent.mkdir(parents=True, exist_ok=True)
         (r / name).write_text(content)
@@ -47,12 +60,20 @@ def tested(fakes):
 RULES = [
     (None, "src", True),
     # tooling and docs: no image content
-    ("Justfile", "src", True), (".github/workflows/binaries.yml", "src", True),
-    (".github/actions/build-image/action.yml", "src", True), (".github/scripts/push_image.py", "src", True), (".github/scripts/binaries_layout.py", "src", True),
-    ("tests/t.py", "src", True), ("README.md", "src", True),
+    ("Justfile", "src", True),
+    (".github/workflows/binaries.yml", "src", True),
+    (".github/actions/build-image/action.yml", "src", True),
+    (".github/scripts/push_image.py", "src", True),
+    (".github/scripts/binaries_layout.py", "src", True),
+    ("tests/t.py", "src", True),
+    ("README.md", "src", True),
     # content: everything under src/
-    ("src/f", "src", False), ("src/Containerfile", "src", False), ("src/lib/stage.sh", "src", False), ("src/lib/assemble.sh", "src", False),
-    ("src/builder.env", "src", False), ("src/NOTES.md", "src", False),
+    ("src/f", "src", False),
+    ("src/Containerfile", "src", False),
+    ("src/lib/stage.sh", "src", False),
+    ("src/lib/assemble.sh", "src", False),
+    ("src/builder.env", "src", False),
+    ("src/NOTES.md", "src", False),
 ]
 
 
@@ -157,13 +178,13 @@ def test_the_revision_label_follows_the_last_content_change(fakes, tested, repo)
     r, rev = repo
     change(r, "src/f", "new content")
     built = git(r, "rev-parse", "HEAD")
-    assert skip(r, rev)[1] == "skip=false"                  # the old label names a commit with other content: build
-    assert skip(r, built)[1] == "skip=true"                 # the build stamps the label with this commit
+    assert skip(r, rev)[1] == "skip=false"  # the old label names a commit with other content: build
+    assert skip(r, built)[1] == "skip=true"  # the build stamps the label with this commit
     change(r, "Justfile", "tooling")
     change(r, "README.md", "docs")
-    assert skip(r, built)[1] == "skip=true"                 # tooling and docs: the label stays at the content commit and still matches
+    assert skip(r, built)[1] == "skip=true"  # tooling and docs: the label stays at the content commit and still matches
     assert promote(r, built)[0].returncode == 0
-    assert promote(r, rev)[0].returncode == 1               # a stale label (the image of the previous content) is refused
+    assert promote(r, rev)[0].returncode == 1  # a stale label (the image of the previous content) is refused
 
 
 def test_promote_prints_the_real_error_of_a_failed_verification(promoted):

@@ -1,6 +1,7 @@
 """The orchestration of the weekly bump (bump_weekly.py): one independent branch, commit and pull request per pin, an unchanged rerun, a moved upstream (new PR, older one closed),
 a stale PR, a failing pin, the dry run and the refusal to start from another checkout. Real git (a bare origin and a clone); bump_run.py and bump_checks.py are the stubs of tests/fakes (the
 decisions per pin are bump_run.py's own business, see test_pins.py); the pull request calls go through githubkit to the fake GitHub API."""
+
 import os
 import shutil
 import subprocess
@@ -9,6 +10,7 @@ import sys
 import pytest
 
 from conftest import FAKES, SCRIPTS, git
+
 
 class World:
     def __init__(self, tmp, api):
@@ -37,8 +39,17 @@ class World:
         git(self.clone, "push", "-q", "origin", "testing")
 
     def run(self, **env):
-        e = {**os.environ, "DB": str(self.db), "BUMP_CHECKS_WAIT": "0", "BUMP_PINS": "scx extest ghostty builder",
-             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t", **env}
+        e = {
+            **os.environ,
+            "DB": str(self.db),
+            "BUMP_CHECKS_WAIT": "0",
+            "BUMP_PINS": "scx extest ghostty builder",
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+            **env,
+        }
         return subprocess.run([sys.executable, "-I", ".github/scripts/bump_weekly.py"], cwd=self.clone, env=e, capture_output=True, text=True)
 
     def lines(self, name):  # what the stub bump_checks.py recorded

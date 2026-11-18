@@ -1,5 +1,6 @@
 """The pin files, writer into reader (the real ghostty pins are copied, written by the real writer and read back by the real reader), and the weekly decisions against a fake
 GitHub API (githubkit talks to it over HTTP) and a Zig index file."""
+
 import base64
 import json
 import shutil
@@ -54,7 +55,9 @@ def test_the_writer_refuses_an_unofficial_zig_entry_and_touches_nothing(root):
 
 def test_a_tag_pinned_component_bumps_to_a_newer_release(root, github):
     tag = pins.load_upstream(root / "src/scx/upstream.env").tag
-    github.routes.update({"/repos/sched-ext/scx/releases/latest": fixture("release", tag_name="v9.0.0"), "/repos/sched-ext/scx/commits/v9.0.0": fixture("commit", sha=SHA)})
+    github.routes.update(
+        {"/repos/sched-ext/scx/releases/latest": fixture("release", tag_name="v9.0.0"), "/repos/sched-ext/scx/commits/v9.0.0": fixture("commit", sha=SHA)}
+    )
     d = upstream_check.check(root, "src/scx")
     assert (d.verb, d.tag, d.commit) == ("bump", "v9.0.0", SHA)
     github.routes["/repos/sched-ext/scx/releases/latest"] = fixture("release", tag_name=tag)
@@ -71,9 +74,15 @@ def test_an_api_error_ends_the_check_with_the_sdks_error(root, github):
 
 def test_a_fork_pin_waits_for_the_fork_to_contain_the_new_commit(root, github):
     pinned = pins.load_upstream(root / "src/extest/upstream.env").commit
-    github.routes.update({"/repos/Supreeeme/extest/releases/latest": fixture("release", tag_name="v2"), "/repos/Supreeeme/extest/commits/v2": fixture("commit", sha=SHA),
-                          f"/repos/Supreeeme/extest/compare/{pinned}...{SHA}": fixture("compare", status="ahead"), "/repos/redcodeworks/extest": fixture("repo", default_branch="main"),
-                          f"/repos/redcodeworks/extest/compare/{SHA}...main": fixture("compare", status="behind")})
+    github.routes.update(
+        {
+            "/repos/Supreeeme/extest/releases/latest": fixture("release", tag_name="v2"),
+            "/repos/Supreeeme/extest/commits/v2": fixture("commit", sha=SHA),
+            f"/repos/Supreeeme/extest/compare/{pinned}...{SHA}": fixture("compare", status="ahead"),
+            "/repos/redcodeworks/extest": fixture("repo", default_branch="main"),
+            f"/repos/redcodeworks/extest/compare/{SHA}...main": fixture("compare", status="behind"),
+        }
+    )
     assert upstream_check.check(root, "src/extest").verb == "forkbehind"
     github.routes[f"/repos/redcodeworks/extest/compare/{SHA}...main"] = fixture("compare", status="ahead")
     d = upstream_check.check(root, "src/extest")
@@ -87,9 +96,13 @@ def ghostty_world(monkeypatch, github, tmp_path, root, tags, zon, index):
     f = tmp_path / "index.json"
     f.write_text(json.dumps(index))
     monkeypatch.setenv("ZIG_INDEX_FILE", str(f))
-    github.routes.update({"/repos/ghostty-org/ghostty/tags": [{**fixture("tag"), "name": n} for n in tags(tag)],
-                          "/repos/ghostty-org/ghostty/commits/v9.0.0": fixture("commit", sha=SHA2),
-                          "/repos/ghostty-org/ghostty/contents/build.zig.zon": fixture("content", content=base64.b64encode(zon.encode()).decode())})
+    github.routes.update(
+        {
+            "/repos/ghostty-org/ghostty/tags": [{**fixture("tag"), "name": n} for n in tags(tag)],
+            "/repos/ghostty-org/ghostty/commits/v9.0.0": fixture("commit", sha=SHA2),
+            "/repos/ghostty-org/ghostty/contents/build.zig.zon": fixture("content", content=base64.b64encode(zon.encode()).decode()),
+        }
+    )
 
 
 ZON = '.{ .minimum_zig_version = "0.17.0", }'
@@ -140,7 +153,10 @@ def test_the_zig_index_download_retries_transport_errors_and_5xx(monkeypatch):
     assert calls[0]["timeout"] == 30 and calls[0]["follow_redirects"] is True
 
 
-@pytest.mark.parametrize("answer,error", [(response(404), httpx.HTTPStatusError), (response(200, b"not json"), ValueError), (response(200, b'{"0.17.1": "not a release"}'), ValueError)])
+@pytest.mark.parametrize(
+    "answer,error",
+    [(response(404), httpx.HTTPStatusError), (response(200, b"not json"), ValueError), (response(200, b'{"0.17.1": "not a release"}'), ValueError)],
+)
 def test_a_definitive_or_invalid_zig_index_raises_and_is_not_retried(monkeypatch, answer, error):
     monkeypatch.delenv("ZIG_INDEX_FILE", raising=False)
     calls = fake_get(monkeypatch, answer)
@@ -160,6 +176,7 @@ def test_a_zig_index_that_stays_down_raises_after_three_tries(monkeypatch):
 
 def test_lock_changes_lists_the_packages_that_moved():
     import bump_run
+
     old = '[[package]]\nname = "httpx"\nversion = "0.28.1"\n\n[[package]]\nname = "yaml"\nversion = "6"\n'
     new = '[[package]]\nname = "httpx"\nversion = "0.28.2"\n\n[[package]]\nname = "yaml"\nversion = "6"\n\n[[package]]\nname = "new"\nversion = "1"\n'
     assert bump_run.lock_changes(old, new) == ["httpx 0.28.1 to 0.28.2", "new - to 1"]
@@ -168,8 +185,16 @@ def test_lock_changes_lists_the_packages_that_moved():
 
 def test_newest_python_is_the_highest_default_cpython_of_the_same_minor():
     import bump_run
-    listing = [{"implementation": i, "variant": v, "version": ver} for i, v, ver in [
-        ("cpython", "default", "3.14.9"), ("cpython", "default", "3.14.10"), ("cpython", "freethreaded", "3.14.11"),
-        ("pypy", "default", "3.14.12"), ("cpython", "default", "3.15.0")]]
+
+    listing = [
+        {"implementation": i, "variant": v, "version": ver}
+        for i, v, ver in [
+            ("cpython", "default", "3.14.9"),
+            ("cpython", "default", "3.14.10"),
+            ("cpython", "freethreaded", "3.14.11"),
+            ("pypy", "default", "3.14.12"),
+            ("cpython", "default", "3.15.0"),
+        ]
+    ]
     assert bump_run.newest_python(listing, "3.14.4") == "3.14.10"
     assert bump_run.newest_python(listing, "3.13.1") is None

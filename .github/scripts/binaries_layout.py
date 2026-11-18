@@ -7,6 +7,7 @@ binary, desktop file and FILES; every component needs <c>/SOURCE, <c>/BUILDINFO 
 components: SOURCE and LICENSES/ too) and holds no other top-level entry than its components, those files. Nothing else is judged here (the build already ran
 the smoke tests and the ELF checks). Exit 0 ok, 1 problems (each on stderr as ::error::).
 """
+
 import os
 import shlex
 import subprocess

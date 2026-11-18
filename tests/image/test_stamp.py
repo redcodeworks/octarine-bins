@@ -1,4 +1,5 @@
 """stamp_image.py with real podman in a scratch storage (skipped without podman): a stamp is written on top of a cached build, so every build is stamped fresh."""
+
 import json
 import re
 import shutil
@@ -19,7 +20,9 @@ def test_the_stamp_is_fresh_on_a_build_served_from_the_layer_cache(tmp_path):
     (ctx / "Containerfile").write_text('FROM scratch\nCOPY f /f\nLABEL static="yes"\n')
 
     def build_and_stamp(revision):
-        subprocess.run([*podman, "build", "--layers", "--quiet", "--tag", "octarine-bins:t", str(ctx)], check=True, capture_output=True)  # the second time: all layers from the cache
+        subprocess.run(
+            [*podman, "build", "--layers", "--quiet", "--tag", "octarine-bins:t", str(ctx)], check=True, capture_output=True
+        )  # the second time: all layers from the cache
         p = script("stamp_image.py", "octarine-bins:t", "20261117-" + revision[:7], revision, extra={"PODMAN": " ".join(podman)})
         assert p.returncode == 0, p.stderr
         info = json.loads(subprocess.run([*podman, "inspect", "octarine-bins:t"], check=True, capture_output=True, text=True).stdout)[0]

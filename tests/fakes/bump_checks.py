@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Stub of bump_checks.py for the weekly test: records its arguments (branch and commit) in $DB/checks."""
+
 import os
 import sys
 

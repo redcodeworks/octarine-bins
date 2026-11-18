@@ -3,6 +3,7 @@
 (a broken one gives a "workflow file issue" with no job and no useful message), and every repo path a Containerfile copies in is listed in that image's `ci.inputs` (a path
 missing there would let a change skip the build and `testing` be promoted stale). Everything else shows where it matters. Run from the repository root. The .archive/ folder is skipped.
 """
+
 import re
 import subprocess
 import sys
@@ -63,8 +64,11 @@ def input_problems(justfile="Justfile"):
             continue
         paths, errors = copied_paths(containerfile, contexts)
         found += errors
-        found += [f"{containerfile} copies '{p}', which is not in ci.inputs('{directory}'): a change to it would not rebuild the image"
-                  for p in paths if not any(p == i or p.startswith(i + "/") for i in listed)]
+        found += [
+            f"{containerfile} copies '{p}', which is not in ci.inputs('{directory}'): a change to it would not rebuild the image"
+            for p in paths
+            if not any(p == i or p.startswith(i + "/") for i in listed)
+        ]
     return found
 
 

@@ -11,6 +11,7 @@ pin lines, and any subset can be merged in any order. Rules:
 Every new PR gets the required `test` and `secrets` check runs from bump_checks.py (keyed by its commit sha, so parallel PRs do not collide). DRY_RUN=1 does every decision locally and
 prints what it would open, keep or close, pushing and opening nothing. A real run needs HEAD to be origin/testing (the workflow checks testing out).
 """
+
 import os
 import subprocess
 import sys
