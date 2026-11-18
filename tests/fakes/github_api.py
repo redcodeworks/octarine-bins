@@ -1,4 +1,5 @@
 """A fake GitHub REST API on 127.0.0.1 (stdlib http.server in a thread): GET answers come from `routes` (404 for anything else), the pull request endpoints keep their state, and `drop` closes the next N connections without an answer (a transport error)."""
+
 import json
 import re
 import threading
@@ -7,7 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 
-API = Path(__file__).parent / "api"  # real GitHub answers (captured once), because githubkit validates every field of a typed response
+API = (
+    Path(__file__).parent / "api"
+)  # real GitHub answers (captured once), because githubkit validates every field of a typed response
 
 
 def fixture(name, **fields):
@@ -17,19 +20,21 @@ def fixture(name, **fields):
 
 def pull(number, ref):
     """A pull request answer with the given number and head branch."""
-    data = fixture("pull", number=number, html_url=f"https://example.test/pull/{number}")
+    data = fixture(
+        "pull", number=number, html_url=f"https://example.test/pull/{number}"
+    )
     data["head"] = {**data["head"], "ref": ref}
     return data
 
 
 class FakeGitHub:
     def __init__(self):
-        self.routes = {}      # path -> JSON answer of a GET
-        self.prs = []         # open pull requests (full answers, see pull())
-        self.created = []     # (head, title) of every pull request opened
-        self.closed = []      # numbers of the pull requests closed
-        self.requests = []    # (method, path) of every request seen
-        self.drop = 0         # close this many next connections without answering
+        self.routes = {}  # path -> JSON answer of a GET
+        self.prs = []  # open pull requests (full answers, see pull())
+        self.created = []  # (head, title) of every pull request opened
+        self.closed = []  # numbers of the pull requests closed
+        self.requests = []  # (method, path) of every request seen
+        self.drop = 0  # close this many next connections without answering
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -43,7 +48,11 @@ class FakeGitHub:
         if method == "GET" and path.endswith("/pulls"):
             return 200, self.prs
         if method == "GET":
-            return (200, self.routes[path]) if path in self.routes else (404, {"message": "Not Found"})
+            return (
+                (200, self.routes[path])
+                if path in self.routes
+                else (404, {"message": "Not Found"})
+            )
         if method == "POST" and path.endswith("/pulls"):
             number = len(self.prs) + len(self.created) + 100
             self.created.append((body["head"], body["title"]))
@@ -77,7 +86,10 @@ class FakeGitHub:
                     self.connection.close()
                     return
                 status, payload = fake.answer(self.command, path, body)
-                if isinstance(payload, list) and parse_qs(urlsplit(self.path).query).get("page", ["1"])[0] != "1":
+                if (
+                    isinstance(payload, list)
+                    and parse_qs(urlsplit(self.path).query).get("page", ["1"])[0] != "1"
+                ):
                     payload = []  # every list fits on page 1
                 data = json.dumps(payload).encode() if payload is not None else b""
                 self.send_response(status)

@@ -11,6 +11,7 @@ suite), this script waits for that run and posts check runs named `test` and `se
 run `test` with the marker title. A GitHub API error ends the script with the SDK's error (bump_weekly.py ignores its exit status: the PR then lacks the checks and stays blocked, fail closed); a missing run only warns. Env: BUMP_BASE (the ref Test is dispatched on, default testing), BUMP_CHECKS_WAIT (seconds
 to wait for the dispatched run to appear, 90; 0 = do not wait), BUMP_CHECKS_POLL (5), BUMP_CHECKS_RUN_MAX (seconds to watch the run, 900).
 """
+
 import os
 import re
 import sys
@@ -30,7 +31,9 @@ def warn(msg):
 
 def find_run(rest, repo, title):
     """The id of the dispatched Test run named `title`, or None."""
-    runs = rest.actions.list_workflow_runs(workflow_id="test.yml", event="workflow_dispatch", per_page=50, **repo).parsed_data.workflow_runs
+    runs = rest.actions.list_workflow_runs(
+        workflow_id="test.yml", event="workflow_dispatch", per_page=50, **repo
+    ).parsed_data.workflow_runs
     return next((r.id for r in runs if r.display_title == title), None)
 
 
@@ -57,37 +60,65 @@ def main(argv=None):
     gh = ci.github()  # keep the client: gh.rest only holds a weak reference to it
     rest = gh.rest
     base = os.environ.get("BUMP_BASE", "testing")
-    wait_s, poll, run_max = ci.int_env("BUMP_CHECKS_WAIT", 90), ci.int_env("BUMP_CHECKS_POLL", 5), ci.int_env("BUMP_CHECKS_RUN_MAX", 900)
+    wait_s, poll, run_max = (
+        ci.int_env("BUMP_CHECKS_WAIT", 90),
+        ci.int_env("BUMP_CHECKS_POLL", 5),
+        ci.int_env("BUMP_CHECKS_RUN_MAX", 900),
+    )
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         warn(f"bump checks for {branch}: not a commit sha '{sha}', nothing posted")
         return 0
-    existing = rest.checks.list_for_ref(ref=sha, per_page=100, **repo).parsed_data.check_runs
+    existing = rest.checks.list_for_ref(
+        ref=sha, per_page=100, **repo
+    ).parsed_data.check_runs
     if any(r.name == "test" and r.output.title == MARKER for r in existing):
         ci.log.info(f"{sha[:7]} already has its reported checks")
         return 0
     title = f"Test of {sha}"
     run_id = find_run(rest, repo, title)
     if run_id is None:
-        rest.actions.create_workflow_dispatch(workflow_id="test.yml", data={"ref": base, "inputs": {"ref": sha}}, **repo)
+        rest.actions.create_workflow_dispatch(
+            workflow_id="test.yml", data={"ref": base, "inputs": {"ref": sha}}, **repo
+        )
         ci.log.info(f"Dispatched the Test workflow on {base} for {sha[:7]} ({branch})")
     waited = 0
-    while run_id is None and waited < wait_s:  # a poll, not a retry: the dispatched run does not exist yet for a moment
+    while (
+        run_id is None and waited < wait_s
+    ):  # a poll, not a retry: the dispatched run does not exist yet for a moment
         time.sleep(poll)
         waited += poll
         run_id = find_run(rest, repo, title)
     if run_id is None:
-        warn(f"bump checks for {branch}: no Test run for {sha[:7]} found, nothing posted (re-run the bump workflow)")
+        warn(
+            f"bump checks for {branch}: no Test run for {sha[:7]} found, nothing posted (re-run the bump workflow)"
+        )
         return 0
     run = wait_for_completion(rest, repo, run_id, run_max, 20)
     if run is None:
-        warn(f"bump checks for {branch}: the Test run {run_id} did not finish, nothing posted")
+        warn(
+            f"bump checks for {branch}: the Test run {run_id} did not finish, nothing posted"
+        )
         return 0
-    jobs = rest.actions.list_jobs_for_workflow_run(run_id=run_id, per_page=100, **repo).parsed_data.jobs
+    jobs = rest.actions.list_jobs_for_workflow_run(
+        run_id=run_id, per_page=100, **repo
+    ).parsed_data.jobs
     for name in ("test", "secrets"):
         job = next((j for j in jobs if j.name == name), None)
         conclusion = "success" if job and job.conclusion == "success" else "failure"
-        rest.checks.create(data={"name": name, "head_sha": sha, "status": "completed", "conclusion": conclusion, "details_url": run.html_url,
-                                 "output": {"title": MARKER, "summary": f"The job `{name}` of the dispatched Test run {run.html_url} finished with {conclusion}."}}, **repo)
+        rest.checks.create(
+            data={
+                "name": name,
+                "head_sha": sha,
+                "status": "completed",
+                "conclusion": conclusion,
+                "details_url": run.html_url,
+                "output": {
+                    "title": MARKER,
+                    "summary": f"The job `{name}` of the dispatched Test run {run.html_url} finished with {conclusion}.",
+                },
+            },
+            **repo,
+        )
         ci.log.info(f"posted check run {name}={conclusion} on {sha[:7]}")
     return 0
 

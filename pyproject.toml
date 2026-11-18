@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]  # ruff only formats (githooks/pre-commit), with its defaults; no configuration, no lint rules, no CI check
 
 [tool.uv]
 package = false

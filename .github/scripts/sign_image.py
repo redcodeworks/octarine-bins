@@ -4,6 +4,7 @@
 Signs image@digest (old bundle format), verifies it with cosign.pub, copies the same digest to image:testing registry-side, reads the tag back until it shows the digest and
 verifies through the tag. A failure at any step stops there: the version tag stays unsigned and `testing` has not moved. Run from the repository root (cosign.pub).
 """
+
 import re
 import sys
 from pathlib import Path
@@ -26,15 +27,22 @@ def main(argv=None):
     try:
         with ci.group("sign, verify, then move testing"):
             registry.sign(f"{image}@{digest}")
-            registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}@{digest}"])  # the signature was written seconds ago
+            registry.cosign_check_fresh(
+                ["--key", "cosign.pub", f"{image}@{digest}"]
+            )  # the signature was written seconds ago
             registry.copy(f"{image}@{digest}", f"{image}:testing")
             registry.settled(image, "testing", digest)
-            registry.cosign_check_fresh(["--key", "cosign.pub", f"{image}:testing"])  # the tag was copied seconds ago: cosign may not see it yet even after settled()
+            registry.cosign_check_fresh(
+                ["--key", "cosign.pub", f"{image}:testing"]
+            )  # the tag was copied seconds ago: cosign may not see it yet even after settled()
     except (ci.NetworkError, registry.ReadError, registry.NotVerified) as e:
         ci.log.error(str(e))
         return 1
     ci.log.info(f"signed: {image}:{args.version} and :testing = {digest}")
-    ci.append_to("GITHUB_STEP_SUMMARY", f"Binaries image {image.rsplit('/', 1)[-1]} {args.version}, signed and published as `testing` (digest `{digest}`)")
+    ci.append_to(
+        "GITHUB_STEP_SUMMARY",
+        f"Binaries image {image.rsplit('/', 1)[-1]} {args.version}, signed and published as `testing` (digest `{digest}`)",
+    )
     return 0
 
 

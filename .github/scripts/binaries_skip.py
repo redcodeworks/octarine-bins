@@ -6,6 +6,7 @@ equals that at the commit the current `testing` image was built from (its label 
 inputs, or an image that does not verify (a signature of an old key, a failed signing) all mean skip=false: build. Only a READ ERROR (registry or cosign could not be
 asked) fails the script (exit 1): a build must not be skipped or forced on a guess. The job that calls this always succeeds, so the required check names always report.
 """
+
 import json
 import re
 import sys
@@ -25,8 +26,12 @@ def decide(image, directory):
     try:
         config = json.loads(registry.read_by_digest("config", image, tested))
     except (registry.Absent, ValueError) as e:
-        raise registry.ReadError(f"the config of {image}@{tested} could not be read ({e})")
-    rev = ((config.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision") or ""
+        raise registry.ReadError(
+            f"the config of {image}@{tested} could not be read ({e})"
+        )
+    rev = ((config.get("config") or {}).get("Labels") or {}).get(
+        "org.opencontainers.image.revision"
+    ) or ""
     if not re.fullmatch(r"[0-9a-f]{40}", rev):
         return False, "testing has no revision label"
     if not ci.fetch_commit(rev):

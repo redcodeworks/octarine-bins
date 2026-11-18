@@ -3,6 +3,7 @@
 The fakes are real executable Python files that the scripts under test start as they would start the real tools, so the tests run the real script into the real
 reader. Their behavior comes from the environment: STATE (a directory with one file per tag, the manifest), MODE, COSIGN_MODE, REV, LOG, COUNT, DB.
 """
+
 import importlib.util
 import os
 import subprocess
@@ -16,13 +17,21 @@ SCRIPTS = ROOT / ".github" / "scripts"
 FAKES = ROOT / "tests" / "fakes"
 sys.path.insert(0, str(SCRIPTS))
 
+
 @pytest.fixture
 def fakes(tmp_path, monkeypatch):
     """tests/fakes on PATH in front; returns the environment for subprocesses (also applied to this process)."""
     state = tmp_path / "state"
     state.mkdir()
-    env = {"PATH": f"{FAKES}:{os.environ['PATH']}", "RETRY_DELAY": "0", "READBACK_WAIT": "0", "READBACK_TRIES": "2", "STATE": str(state),
-           "LOG": str(tmp_path / "log"), "COUNT": str(tmp_path / "count")}
+    env = {
+        "PATH": f"{FAKES}:{os.environ['PATH']}",
+        "RETRY_DELAY": "0",
+        "READBACK_WAIT": "0",
+        "READBACK_TRIES": "2",
+        "STATE": str(state),
+        "LOG": str(tmp_path / "log"),
+        "COUNT": str(tmp_path / "count"),
+    }
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
@@ -32,12 +41,29 @@ def fakes(tmp_path, monkeypatch):
 def script(name, *args, cwd=None, env=None, extra=None):
     """Run a script of .github/scripts the way a workflow does (`python3 -I`); returns the CompletedProcess with text output."""
     e = {**os.environ, **(env or {}), **(extra or {})}
-    return subprocess.run([sys.executable, "-I", str(SCRIPTS / name), *args], cwd=cwd, env=e, capture_output=True, text=True)
+    return subprocess.run(
+        [sys.executable, "-I", str(SCRIPTS / name), *args],
+        cwd=cwd,
+        env=e,
+        capture_output=True,
+        text=True,
+    )
 
 
 def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
-                          env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}).stdout.strip()
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        },
+    ).stdout.strip()
 
 
 def load_fake(name):
@@ -49,7 +75,10 @@ def load_fake(name):
 
 
 github_api = load_fake("github_api")
-fixture, pull = github_api.fixture, github_api.pull  # captured GitHub answers for the tests to adjust
+fixture, pull = (
+    github_api.fixture,
+    github_api.pull,
+)  # captured GitHub answers for the tests to adjust
 
 
 @pytest.fixture

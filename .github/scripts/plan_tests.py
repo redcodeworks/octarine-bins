@@ -4,6 +4,7 @@
 Prints the groups as a JSON array and, with GITHUB_OUTPUT set, as `groups=<json>`. Fails when a test file (test_*.py or *.sh) sits outside a group, where nothing would run it,
 or when a group directory holds no test file. tests/fakes is not a group (shared fakes). Run: python3 -I .github/scripts/plan_tests.py
 """
+
 import json
 import os
 import sys
@@ -20,9 +21,13 @@ def is_test(p):
 def main():
     stray = sorted(p.name for p in TESTS.iterdir() if p.is_file() and is_test(p))
     if stray:
-        print(f"::error::tests/{stray[0]} is outside a group: move it into a tests/<group>/ directory ({', '.join(stray)})")
+        print(
+            f"::error::tests/{stray[0]} is outside a group: move it into a tests/<group>/ directory ({', '.join(stray)})"
+        )
         return 1
-    groups = sorted(d.name for d in TESTS.iterdir() if d.is_dir() and d.name not in NOT_GROUPS)
+    groups = sorted(
+        d.name for d in TESTS.iterdir() if d.is_dir() and d.name not in NOT_GROUPS
+    )
     for g in groups:
         if not any(is_test(p) for p in (TESTS / g).iterdir()):
             print(f"::error::the test group tests/{g} has no test file")

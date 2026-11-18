@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Opt-in (`just hooks`): format the staged Python files with the locked ruff and stage the result.
+set -euo pipefail
+
+# Added, copied, modified or renamed files only (a deleted file has nothing to format).
+mapfile -d '' files < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.py')
+[[ ${#files[@]} -gt 0 ]] || exit 0
+
+uv run --frozen ruff format -- "${files[@]}"
+git add -- "${files[@]}"

@@ -7,6 +7,7 @@ Format: KEY=VALUE lines, `#` comments and blank lines allowed, nothing else (the
   UPSTREAM_TAG     the release tag; empty for a project pinned by commit only
   UPSTREAM_COMMIT  the 40-hex commit the pin must resolve to (for an annotated tag: the peeled commit)
 """
+
 import re
 from pathlib import Path
 from typing import Literal
@@ -21,6 +22,7 @@ KEYS = ("UPSTREAM_REPO", "UPSTREAM_WATCH", "UPSTREAM_TAG", "UPSTREAM_COMMIT")
 @dataclass(frozen=True)
 class Pin:
     """The pin of one component (upstream.env), validated when it is read."""
+
     repo: str = Field(pattern=r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
     watch: str = Field(pattern=r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
     tag: str = Field(pattern=r"^[A-Za-z0-9._+-]*$")
@@ -31,6 +33,7 @@ class Pin:
 class Decision:
     """The answer of a weekly check (upstream_check, ghostty_check): current, bump, wait, report or forkbehind. A bump carries the new tag and commit, and for
     Ghostty the Zig release that goes with it."""
+
     verb: Literal["current", "bump", "wait", "report", "forkbehind"]
     text: str = ""
     tag: str = ""
@@ -42,7 +45,20 @@ class Decision:
 
     def line(self):
         """The one-line form that the scripts print and the job summary shows."""
-        return " ".join(w for w in (self.verb, self.tag, self.commit, self.zig, self.zig_url, self.zig_sha256, self.zig_size, self.text) if w)
+        return " ".join(
+            w
+            for w in (
+                self.verb,
+                self.tag,
+                self.commit,
+                self.zig,
+                self.zig_url,
+                self.zig_sha256,
+                self.zig_size,
+                self.text,
+            )
+            if w
+        )
 
 
 def load_upstream(path):
@@ -67,9 +83,16 @@ def load_upstream(path):
         seen.add(key)
         values[key] = value.strip("\"'")
     try:
-        return Pin(repo=values["UPSTREAM_REPO"], watch=values["UPSTREAM_WATCH"] or values["UPSTREAM_REPO"], tag=values["UPSTREAM_TAG"], commit=values["UPSTREAM_COMMIT"])
+        return Pin(
+            repo=values["UPSTREAM_REPO"],
+            watch=values["UPSTREAM_WATCH"] or values["UPSTREAM_REPO"],
+            tag=values["UPSTREAM_TAG"],
+            commit=values["UPSTREAM_COMMIT"],
+        )
     except ValidationError as e:
-        raise ValueError(f"{path}: {e.errors()[0]['loc'][0]} is invalid ({e.errors()[0]['msg']})") from e
+        raise ValueError(
+            f"{path}: {e.errors()[0]['loc'][0]} is invalid ({e.errors()[0]['msg']})"
+        ) from e
 
 
 def set_lines(path, values):
@@ -77,7 +100,9 @@ def set_lines(path, values):
     path = Path(path)
     content = path.read_text()
     for key, value in values.items():
-        content, n = re.subn(rf"^{key}=.*$", lambda _m, v=value: f"{key}={v}", content, flags=re.M)
+        content, n = re.subn(
+            rf"^{key}=.*$", lambda _m, v=value: f"{key}={v}", content, flags=re.M
+        )
         if n == 0:
             raise ValueError(f"{path} has no {key} line")
     path.write_text(content)
@@ -85,7 +110,9 @@ def set_lines(path, values):
 
 def set_upstream(path, tag, commit):
     """A bump: rewrite the two pin lines and read the file back."""
-    if not (re.fullmatch(r"[A-Za-z0-9._+-]*", tag) and re.fullmatch(r"[0-9a-f]{40}", commit)):
+    if not (
+        re.fullmatch(r"[A-Za-z0-9._+-]*", tag) and re.fullmatch(r"[0-9a-f]{40}", commit)
+    ):
         raise ValueError("bad tag or commit")
     set_lines(path, {"UPSTREAM_TAG": tag, "UPSTREAM_COMMIT": commit})
     pin = load_upstream(path)
@@ -95,7 +122,11 @@ def set_upstream(path, tag, commit):
 
 def read_env(path):
     """A plain KEY=VALUE file (zig.env, builder.env) as a dict; comment lines skipped."""
-    return dict(m.groups() for line in Path(path).read_text().splitlines() if (m := re.fullmatch(r"([A-Z_0-9]+)=(.*)", line)))
+    return dict(
+        m.groups()
+        for line in Path(path).read_text().splitlines()
+        if (m := re.fullmatch(r"([A-Z_0-9]+)=(.*)", line))
+    )
 
 
 def write_ghostty(directory, tag, commit, zig_version, zig_url, zig_sha256, zig_size):
@@ -103,10 +134,25 @@ def write_ghostty(directory, tag, commit, zig_version, zig_url, zig_sha256, zig_
     follows from the Ghostty tag. The Zig values must be an official ziglang.org x86_64-linux release entry (what fetch-zig.sh requires), else ValueError and nothing is touched."""
     directory = Path(directory)
     official = f"https://ziglang.org/download/{zig_version}/zig-x86_64-linux-{zig_version}.tar.xz"
-    if not (re.fullmatch(r"0\.[0-9]+\.[0-9]+", zig_version) and re.fullmatch(r"[0-9a-f]{64}", zig_sha256) and re.fullmatch(r"[0-9]+", str(zig_size)) and zig_url == official):
-        raise ValueError("the Zig arguments are not an official x86_64-linux release entry")
+    if not (
+        re.fullmatch(r"0\.[0-9]+\.[0-9]+", zig_version)
+        and re.fullmatch(r"[0-9a-f]{64}", zig_sha256)
+        and re.fullmatch(r"[0-9]+", str(zig_size))
+        and zig_url == official
+    ):
+        raise ValueError(
+            "the Zig arguments are not an official x86_64-linux release entry"
+        )
     set_upstream(directory / "upstream.env", tag, commit)
-    values = {"ZIG_VERSION": zig_version, "ZIG_URL": zig_url, "ZIG_SHA256": zig_sha256, "ZIG_SIZE": str(zig_size), "ZIG_SIGNATURE_URL": f"{zig_url}.minisig"}
-    if "ZIG_SIZE" not in read_env(directory / "zig.env"):  # not pinned today: the size must equal the one index.json lists, so there is no line to write
+    values = {
+        "ZIG_VERSION": zig_version,
+        "ZIG_URL": zig_url,
+        "ZIG_SHA256": zig_sha256,
+        "ZIG_SIZE": str(zig_size),
+        "ZIG_SIGNATURE_URL": f"{zig_url}.minisig",
+    }
+    if (
+        "ZIG_SIZE" not in read_env(directory / "zig.env")
+    ):  # not pinned today: the size must equal the one index.json lists, so there is no line to write
         del values["ZIG_SIZE"]
     set_lines(directory / "zig.env", values)

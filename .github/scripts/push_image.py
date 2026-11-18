@@ -6,6 +6,7 @@ may still answer with the previous manifest). A tag that already exists is never
 existing digest is kept and used, which is the image that passed the layout check and may already be signed. Other tags (`testing`, `latest`) are never pushed from here: they are registry-side copies of this digest made after it was signed.
 Prints `digests=<digest>` and appends it to $GITHUB_OUTPUT. Tools: podman, skopeo.
 """
+
 import sys
 from pathlib import Path
 
@@ -17,17 +18,23 @@ import registry  # noqa: E402
 def main(argv=None):
     ap = ci.arg_parser(__doc__)
     ap.add_argument("local_image", help="the locally built image")
-    ap.add_argument("registry_image", help="registry image without a tag (registry/owner/name)")
+    ap.add_argument(
+        "registry_image", help="registry image without a tag (registry/owner/name)"
+    )
     ap.add_argument("tag", help="the one tag to push")
     args = ap.parse_args(argv)
     try:
         try:
             digest = registry.digest(args.registry_image, args.tag)
         except registry.Absent:
-            digest = registry.push(args.local_image, f"{args.registry_image}:{args.tag}")
+            digest = registry.push(
+                args.local_image, f"{args.registry_image}:{args.tag}"
+            )
             registry.settled(args.registry_image, args.tag, digest)
         else:
-            ci.log.warning(f"{args.tag} already exists ({digest}); not overwriting it, the existing image is used")
+            ci.log.warning(
+                f"{args.tag} already exists ({digest}); not overwriting it, the existing image is used"
+            )
             ci.emit("digests", digest)
             return 0
     except (ci.NetworkError, registry.ReadError) as e:
