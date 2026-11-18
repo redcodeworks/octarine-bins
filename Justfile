@@ -33,3 +33,7 @@ test group="":
     set -euo pipefail
     dir="tests/{{ group }}"
     uv run --frozen pytest "${dir}"
+
+# Opt in to the pre-commit hook (githooks/pre-commit): it formats the staged Python files with ruff. Undo with `git config --unset core.hooksPath`
+hooks:
+    git config core.hooksPath githooks
