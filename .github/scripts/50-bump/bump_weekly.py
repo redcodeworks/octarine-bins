@@ -35,6 +35,7 @@ from githubkit.exception import RequestFailed
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "00-lib"))
 import ci  # noqa: E402
 
 NOTES = {
@@ -280,7 +281,7 @@ def main(argv=None):
     real run). The failing pin does not stop the others.
     """
     ci.arg_parser(__doc__).parse_args(argv)
-    os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
+    os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[2])
     base = os.environ.get("BUMP_BASE", "testing")
     # the workflow matrix is the only list of pins; a hand run names them
     pins = os.environ.get("BUMP_PINS", "").split()

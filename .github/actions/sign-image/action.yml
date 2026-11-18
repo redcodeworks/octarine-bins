@@ -58,4 +58,4 @@ runs:
         IMAGE: ${{ inputs.image }}
         VERSION: ${{ inputs.version }}
         DIGEST: ${{ inputs.digest }}
-      run: uv run --frozen --no-dev python -I .github/scripts/sign_image.py "${IMAGE}" "${VERSION}" "${DIGEST}"
+      run: uv run --frozen --no-dev python -I .github/scripts/30-sign/sign_image.py "${IMAGE}" "${VERSION}" "${DIGEST}"
