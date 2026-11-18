@@ -34,7 +34,9 @@ def problem(stray, groups):
 
 def main():
     stray = sorted(p.name for p in TESTS.iterdir() if p.is_file() and is_test(p))
-    groups = sorted(d.name for d in TESTS.iterdir() if d.is_dir() and d.name not in NOT_GROUPS)
+    groups = sorted(
+        d.name for d in TESTS.iterdir() if d.is_dir() and d.name not in NOT_GROUPS
+    )
     if reason := problem(stray, groups):
         print(f"::error::{reason}", file=sys.stderr)
         return 1

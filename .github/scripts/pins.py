@@ -45,7 +45,20 @@ class Decision:
 
     def line(self):
         """The one-line form that the scripts print and the job summary shows."""
-        return " ".join(w for w in (self.verb, self.tag, self.commit, self.zig, self.zig_url, self.zig_sha256, self.zig_size, self.text) if w)
+        return " ".join(
+            w
+            for w in (
+                self.verb,
+                self.tag,
+                self.commit,
+                self.zig,
+                self.zig_url,
+                self.zig_sha256,
+                self.zig_size,
+                self.text,
+            )
+            if w
+        )
 
 
 def load_upstream(path):
@@ -77,7 +90,9 @@ def load_upstream(path):
             commit=values["UPSTREAM_COMMIT"],
         )
     except ValidationError as e:
-        raise ValueError(f"{path}: {e.errors()[0]['loc'][0]} is invalid ({e.errors()[0]['msg']})") from e
+        raise ValueError(
+            f"{path}: {e.errors()[0]['loc'][0]} is invalid ({e.errors()[0]['msg']})"
+        ) from e
 
 
 def set_lines(path, values):
@@ -85,7 +100,9 @@ def set_lines(path, values):
     path = Path(path)
     content = path.read_text()
     for key, value in values.items():
-        content, n = re.subn(rf"^{key}=.*$", lambda _m, v=value: f"{key}={v}", content, flags=re.M)
+        content, n = re.subn(
+            rf"^{key}=.*$", lambda _m, v=value: f"{key}={v}", content, flags=re.M
+        )
         if n == 0:
             raise ValueError(f"{path} has no {key} line")
     path.write_text(content)
@@ -93,7 +110,9 @@ def set_lines(path, values):
 
 def set_upstream(path, tag, commit):
     """A bump: rewrite the two pin lines and read the file back."""
-    if not (re.fullmatch(r"[A-Za-z0-9._+-]*", tag) and re.fullmatch(r"[0-9a-f]{40}", commit)):
+    if not (
+        re.fullmatch(r"[A-Za-z0-9._+-]*", tag) and re.fullmatch(r"[0-9a-f]{40}", commit)
+    ):
         raise ValueError("bad tag or commit")
     set_lines(path, {"UPSTREAM_TAG": tag, "UPSTREAM_COMMIT": commit})
     pin = load_upstream(path)
@@ -103,7 +122,11 @@ def set_upstream(path, tag, commit):
 
 def read_env(path):
     """A plain KEY=VALUE file (zig.env, builder.env) as a dict; comment lines skipped."""
-    return dict(m.groups() for line in Path(path).read_text().splitlines() if (m := re.fullmatch(r"([A-Z_0-9]+)=(.*)", line)))
+    return dict(
+        m.groups()
+        for line in Path(path).read_text().splitlines()
+        if (m := re.fullmatch(r"([A-Z_0-9]+)=(.*)", line))
+    )
 
 
 def write_ghostty(directory, tag, commit, zig_version, zig_url, zig_sha256, zig_size):
@@ -117,9 +140,13 @@ def write_ghostty(directory, tag, commit, zig_version, zig_url, zig_sha256, zig_
         and re.fullmatch(r"[0-9]+", str(zig_size))
         and zig_url == official
     ):
-        raise ValueError("the Zig arguments are not an official x86_64-linux release entry")
+        raise ValueError(
+            "the Zig arguments are not an official x86_64-linux release entry"
+        )
     set_upstream(directory / "upstream.env", tag, commit)
-    size_pinned = "ZIG_SIZE" in read_env(directory / "zig.env")  # not pinned today: the size must equal the one index.json lists, so there is no line to write
+    size_pinned = (
+        "ZIG_SIZE" in read_env(directory / "zig.env")
+    )  # not pinned today: the size must equal the one index.json lists, so there is no line to write
     values = {
         "ZIG_VERSION": zig_version,
         "ZIG_URL": zig_url,

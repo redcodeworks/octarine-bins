@@ -71,14 +71,18 @@ def open_prs(pin, base):
     """(number, branch) of every open PR into the base whose branch is bump/<pin>-..."""
     gh = ci.github()
     prs = gh.rest.paginate(gh.rest.pulls.list, state="open", base=base, **repo_parts())
-    return [(pr.number, pr.head.ref) for pr in prs if pr.head.ref.startswith(f"bump/{pin}-")]
+    return [
+        (pr.number, pr.head.ref) for pr in prs if pr.head.ref.startswith(f"bump/{pin}-")
+    ]
 
 
 def close_pr(number, branch, comment):
     """Comment on a pull request, close it and delete its branch."""
     gh = ci.github()
     rest = gh.rest
-    rest.issues.create_comment(issue_number=number, data={"body": comment}, **repo_parts())
+    rest.issues.create_comment(
+        issue_number=number, data={"body": comment}, **repo_parts()
+    )
     rest.pulls.update(pull_number=number, data={"state": "closed"}, **repo_parts())
     rest.git.delete_ref(ref=f"heads/{branch}", **repo_parts())
 
@@ -87,21 +91,33 @@ def open_pr(branch, title, body, base):
     """Open the pull request and return its URL."""
     gh = ci.github()
     try:
-        return gh.rest.pulls.create(data={"title": title, "head": branch, "base": base, "body": body}, **repo_parts()).parsed_data.html_url
+        return gh.rest.pulls.create(
+            data={"title": title, "head": branch, "base": base, "body": body},
+            **repo_parts(),
+        ).parsed_data.html_url
     except RequestFailed:
-        ci.log.error("Could not open the pull request. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?")
+        ci.log.error(
+            "Could not open the pull request. Is Settings, Actions, General, Allow GitHub Actions to create and approve pull requests, on?"
+        )
         raise
 
 
 def free_branch(pin, day):
     """bump/<pin>-<day>, or the first of bump/<pin>-<day>-2, -3 ... that does not exist on origin yet (a new name, never a force-push)."""
     names = (f"bump/{pin}-{day}" + (f"-{n}" if n > 1 else "") for n in count(1))
-    return next(name for name in names if git("ls-remote", "--exit-code", "--heads", "origin", name).returncode != 0)
+    return next(
+        name
+        for name in names
+        if git("ls-remote", "--exit-code", "--heads", "origin", name).returncode != 0
+    )
 
 
 def proposes(pr_branch, to):
     """Does the open pull request's branch carry the value `to`?"""
-    return git("fetch", "-q", "origin", pr_branch).returncode == 0 and to_of("FETCH_HEAD") == to
+    return (
+        git("fetch", "-q", "origin", pr_branch).returncode == 0
+        and to_of("FETCH_HEAD") == to
+    )
 
 
 def bump_pin(p, start, base, day, dry):
@@ -111,22 +127,34 @@ def bump_pin(p, start, base, day, dry):
     branch = f"bump/{p}-{day}" if dry else free_branch(p, day)
     if git("checkout", "-q", "-B", branch).returncode != 0:
         return True
-    if subprocess.run([sys.executable, "-I", str(HERE / "bump_run.py"), p]).returncode != 0:
+    if (
+        subprocess.run([sys.executable, "-I", str(HERE / "bump_run.py"), p]).returncode
+        != 0
+    ):
         return True
     pending = open_prs(p, base)
     if not git("rev-list", f"{start}..HEAD").stdout.strip():
         for number, pr_branch in pending:
             if dry:
-                summary(f"Dry run: would close #{number} ({p}: testing already has the upstream value)")
+                summary(
+                    f"Dry run: would close #{number} ({p}: testing already has the upstream value)"
+                )
             else:
-                close_pr(number, pr_branch, f"Closing: `{p}` already equals upstream on `{base}`, so this bump is not needed any more.")
+                close_pr(
+                    number,
+                    pr_branch,
+                    f"Closing: `{p}` already equals upstream on `{base}`, so this bump is not needed any more.",
+                )
         return False
     commit = git("rev-parse", "HEAD").stdout.strip()
     row, to = row_of(commit), to_of(commit)
     if " | " not in row:
         ci.log.error(f"{p}: the bump commit has no table row")
         return True
-    if keep := next(reversed([number for number, pr_branch in pending if proposes(pr_branch, to)]), None):
+    if keep := next(
+        reversed([number for number, pr_branch in pending if proposes(pr_branch, to)]),
+        None,
+    ):
         summary(f"`{p}`: #{keep} already proposes {to}; nothing new")
         return False
     fields = row.split("|")
@@ -135,16 +163,27 @@ def bump_pin(p, start, base, day, dry):
     if dry:
         summary(f"Dry run: would open {branch} ({commit[:7]}), title: {title}")
         for number, pr_branch in pending:
-            summary(f"Dry run: would close the older #{number} ({pr_branch}), superseded")
+            summary(
+                f"Dry run: would close the older #{number} ({pr_branch}), superseded"
+            )
         summary(body)
         return False
-    if git("push", "-q", "origin", f"refs/heads/{branch}:refs/heads/{branch}").returncode != 0:
+    if (
+        git(
+            "push", "-q", "origin", f"refs/heads/{branch}:refs/heads/{branch}"
+        ).returncode
+        != 0
+    ):
         ci.log.error(f"cannot push {branch}")
         return True
     url = open_pr(branch, title, body, base)
     summary(f"`{p}`: opened {url}")
     for number, pr_branch in pending:
-        close_pr(number, pr_branch, f"Superseded by {url}: upstream moved again, so `{p}` has a newer bump pull request.")
+        close_pr(
+            number,
+            pr_branch,
+            f"Superseded by {url}: upstream moved again, so `{p}` has a newer bump pull request.",
+        )
     subprocess.run([sys.executable, "-I", str(HERE / "bump_checks.py"), branch, commit])
     return False
 
@@ -153,9 +192,13 @@ def main(argv=None):
     ci.arg_parser(__doc__).parse_args(argv)
     os.chdir(os.environ.get("REPO_ROOT") or HERE.parents[1])
     base = os.environ.get("BUMP_BASE", "testing")
-    pins = os.environ.get("BUMP_PINS", "").split()  # the workflow matrix is the only list of pins; a hand run names them
+    pins = os.environ.get(
+        "BUMP_PINS", ""
+    ).split()  # the workflow matrix is the only list of pins; a hand run names them
     if not pins:
-        ci.log.error("BUMP_PINS is empty: name the pin(s) to check, e.g. BUMP_PINS='scx extest' (the workflow sets it from its matrix)")
+        ci.log.error(
+            "BUMP_PINS is empty: name the pin(s) to check, e.g. BUMP_PINS='scx extest' (the workflow sets it from its matrix)"
+        )
         return 1
     dry = bool(os.environ.get("DRY_RUN"))
     if git("fetch", "-q", "origin", base).returncode != 0:
@@ -163,11 +206,15 @@ def main(argv=None):
         return 1
     start = git("rev-parse", "HEAD").stdout.strip()
     if not dry and start != git("rev-parse", f"origin/{base}").stdout.strip():
-        ci.log.error(f"a real run must start from origin/{base} (this checkout is not it); use dry_run to try another ref")
+        ci.log.error(
+            f"a real run must start from origin/{base} (this checkout is not it); use dry_run to try another ref"
+        )
         return 1
     day = datetime.now(timezone.utc).strftime("%Y%m%d")
     summary("## Pin bumps")
-    failures = [bump_pin(p, start, base, day, dry) for p in pins]  # one pin after the other: they share this checkout
+    failures = [
+        bump_pin(p, start, base, day, dry) for p in pins
+    ]  # one pin after the other: they share this checkout
     git("checkout", "-q", "--detach", start)
     return 1 if any(failures) else 0
 

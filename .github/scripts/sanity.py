@@ -19,7 +19,9 @@ ARCHIVE = ".archive/"  # the kept shell scripts: inert, never checked as live co
 
 
 def tracked(pattern):
-    out = subprocess.run(["git", "ls-files", pattern], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["git", "ls-files", pattern], capture_output=True, text=True, check=True
+    ).stdout
     return [f for f in out.splitlines() if not f.startswith(ARCHIVE)]
 
 
@@ -28,19 +30,34 @@ def line_sources(containerfile, words, stages, contexts):
     repo path, read from the Justfile) and what cannot be resolved. `--from=<stage>` is another stage, not the repo."""
     match words[0].upper():
         case "RUN" if any(w.startswith("--mount=") and "type=bind" in w for w in words):
-            return [], [f"{containerfile}: RUN --mount=type=bind is not checked by sanity.py; extend line_sources: {' '.join(words)}"]
+            return [], [
+                f"{containerfile}: RUN --mount=type=bind is not checked by sanity.py; extend line_sources: {' '.join(words)}"
+            ]
         case "COPY" | "ADD":
             flags = [w for w in words[1:] if w.startswith("--")]
-            args = [w for w in words[1:] if not w.startswith("--")][:-1]  # the last argument is the destination
-            source = next((f.removeprefix("--from=") for f in flags if f.startswith("--from=")), None)
+            args = [w for w in words[1:] if not w.startswith("--")][
+                :-1
+            ]  # the last argument is the destination
+            source = next(
+                (f.removeprefix("--from=") for f in flags if f.startswith("--from=")),
+                None,
+            )
             if source in stages:
                 return [], []
             if source is not None and source not in contexts:
-                return [], [f"{containerfile}: --from={source} is neither a stage nor a --build-context of the Justfile"]
+                return [], [
+                    f"{containerfile}: --from={source} is neither a stage nor a --build-context of the Justfile"
+                ]
             base = Path(contexts[source]) if source else Path(containerfile).parent
-            unchecked = [a for a in args if "$" in a or a.startswith(("http://", "https://", "<<"))]
+            unchecked = [
+                a
+                for a in args
+                if "$" in a or a.startswith(("http://", "https://", "<<"))
+            ]
             # Path drops a trailing "/." so `.` is the directory itself
-            return [str(base / a) for a in args if a not in unchecked], [f"{containerfile}: cannot check the source '{a}'" for a in unchecked]
+            return [str(base / a) for a in args if a not in unchecked], [
+                f"{containerfile}: cannot check the source '{a}'" for a in unchecked
+            ]
         case _:
             return [], []
 
@@ -48,10 +65,20 @@ def line_sources(containerfile, words, stages, contexts):
 def copied_paths(containerfile, contexts):
     """The repo paths a Containerfile copies in, and the problems of lines that cannot be resolved (never ignored): (paths, problems)."""
     text = Path(containerfile).read_text().replace("\\\n", " ")
-    lines = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-    stages = {w[3] for w in lines if w[0].upper() == "FROM" and len(w) > 3 and w[2].upper() == "AS"}
+    lines = [
+        line.split()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    stages = {
+        w[3]
+        for w in lines
+        if w[0].upper() == "FROM" and len(w) > 3 and w[2].upper() == "AS"
+    }
     per_line = [line_sources(containerfile, words, stages, contexts) for words in lines]
-    return list(chain.from_iterable(p for p, _ in per_line)), list(chain.from_iterable(f for _, f in per_line))
+    return list(chain.from_iterable(p for p, _ in per_line)), list(
+        chain.from_iterable(f for _, f in per_line)
+    )
 
 
 def image_problems(containerfile, contexts):
@@ -74,12 +101,23 @@ def image_problems(containerfile, contexts):
 
 def input_problems(justfile="Justfile"):
     """Every image's `image_problems`, in one list."""
-    contexts = dict(re.findall(r"--build-context\s+(\w+)=(\S+)", Path(justfile).read_text()))
-    return list(chain.from_iterable(image_problems(containerfile, contexts) for containerfile in tracked("*/Containerfile")))
+    contexts = dict(
+        re.findall(r"--build-context\s+(\w+)=(\S+)", Path(justfile).read_text())
+    )
+    return list(
+        chain.from_iterable(
+            image_problems(containerfile, contexts)
+            for containerfile in tracked("*/Containerfile")
+        )
+    )
 
 
 def bash_problem(path):
-    return f"bash -n {path}" if subprocess.run(["bash", "-n", path]).returncode != 0 else None
+    return (
+        f"bash -n {path}"
+        if subprocess.run(["bash", "-n", path]).returncode != 0
+        else None
+    )
 
 
 def python_problem(path):
@@ -97,8 +135,17 @@ def yaml_problem(path):
 
 
 def problems():
-    workflows = sorted([*Path(".github/workflows").glob("*.yml"), *Path(".github/actions").glob("*/action.yml")])
-    checked = [*map(bash_problem, tracked("*.sh")), *map(python_problem, tracked("*.py")), *map(yaml_problem, workflows)]
+    workflows = sorted(
+        [
+            *Path(".github/workflows").glob("*.yml"),
+            *Path(".github/actions").glob("*/action.yml"),
+        ]
+    )
+    checked = [
+        *map(bash_problem, tracked("*.sh")),
+        *map(python_problem, tracked("*.py")),
+        *map(yaml_problem, workflows),
+    ]
     return [message for message in checked if message]
 
 

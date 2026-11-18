@@ -24,14 +24,18 @@ def publish(local_image, image, tag):
         registry.settled(image, tag, digest)
         ci.log.info(f"pushed {tag} -> {digest}")
         return digest
-    ci.log.warning(f"{tag} already exists ({digest}); not overwriting it, the existing image is used")
+    ci.log.warning(
+        f"{tag} already exists ({digest}); not overwriting it, the existing image is used"
+    )
     return digest
 
 
 def main(argv=None):
     ap = ci.arg_parser(__doc__)
     ap.add_argument("local_image", help="the locally built image")
-    ap.add_argument("registry_image", help="registry image without a tag (registry/owner/name)")
+    ap.add_argument(
+        "registry_image", help="registry image without a tag (registry/owner/name)"
+    )
     ap.add_argument("tag", help="the one tag to push")
     args = ap.parse_args(argv)
     try:

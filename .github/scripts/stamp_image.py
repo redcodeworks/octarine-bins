@@ -35,8 +35,14 @@ def main(argv=None):
     ap.add_argument("revision", help="the full commit sha the image was built from")
     args = ap.parse_args(argv)
     created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    build_args = {"IMAGE_VERSION": args.version, "IMAGE_REVISION": args.revision, "IMAGE_CREATED": created}
-    with tempfile.TemporaryDirectory() as empty:  # an empty build context: the Containerfile copies nothing
+    build_args = {
+        "IMAGE_VERSION": args.version,
+        "IMAGE_REVISION": args.revision,
+        "IMAGE_CREATED": created,
+    }
+    with (
+        tempfile.TemporaryDirectory() as empty
+    ):  # an empty build context: the Containerfile copies nothing
         cmd = [
             *shlex.split(os.environ.get("PODMAN", "podman")),
             "build",
@@ -46,14 +52,23 @@ def main(argv=None):
             "-",
             "--tag",
             args.image,
-            *chain.from_iterable(("--build-arg", f"{key}={value}") for key, value in build_args.items()),
+            *chain.from_iterable(
+                ("--build-arg", f"{key}={value}") for key, value in build_args.items()
+            ),
             empty,
         ]
-        done = subprocess.run(cmd, input=CONTAINERFILE.format(image=args.image), text=True, stdout=subprocess.DEVNULL)
+        done = subprocess.run(
+            cmd,
+            input=CONTAINERFILE.format(image=args.image),
+            text=True,
+            stdout=subprocess.DEVNULL,
+        )
     if done.returncode:
         ci.log.error(f"stamping {args.image} failed")
         return 1
-    ci.log.info(f"stamped {args.image}: version {args.version}, revision {args.revision}, created {created}")
+    ci.log.info(
+        f"stamped {args.image}: version {args.version}, revision {args.revision}, created {created}"
+    )
     return 0
 
 

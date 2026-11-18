@@ -15,7 +15,10 @@ def tracked_repo(tmp_path, files):
 
 
 def test_a_broken_script_in_the_archive_is_not_checked(tmp_path, monkeypatch):
-    tracked_repo(tmp_path, {".archive/shell-ci/scripts/old.sh": "if then fi (\n", "ok.sh": "echo ok\n"})
+    tracked_repo(
+        tmp_path,
+        {".archive/shell-ci/scripts/old.sh": "if then fi (\n", "ok.sh": "echo ok\n"},
+    )
     monkeypatch.chdir(tmp_path)
     assert sanity.problems() == []
 

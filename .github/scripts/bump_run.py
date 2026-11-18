@@ -27,7 +27,9 @@ import pins  # noqa: E402
 import registry  # noqa: E402
 import upstream_check  # noqa: E402
 
-BUILDER_PIN = re.compile(r"(registry\.fedoraproject\.org/fedora):([0-9]+)@(sha256:[0-9a-f]{64})")
+BUILDER_PIN = re.compile(
+    r"(registry\.fedoraproject\.org/fedora):([0-9]+)@(sha256:[0-9a-f]{64})"
+)
 
 
 class Fail(Exception):
@@ -44,7 +46,9 @@ def parse_when(when):
     if not isinstance(when, str):
         return when
     try:
-        return datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", when.replace("Z", "+00:00")))
+        return datetime.fromisoformat(
+            re.sub(r"(\.\d{6})\d+", r"\1", when.replace("Z", "+00:00"))
+        )
     except ValueError:
         return None
 
@@ -52,13 +56,19 @@ def parse_when(when):
 def days_since(when):
     """Whole days since a datetime or an ISO date string; None when a string cannot be read (or has no time zone)."""
     parsed = parse_when(when)
-    return int((datetime.now(timezone.utc) - parsed).total_seconds() // 86400) if parsed and parsed.tzinfo else None
+    return (
+        int((datetime.now(timezone.utc) - parsed).total_seconds() // 86400)
+        if parsed and parsed.tzinfo
+        else None
+    )
 
 
 def commit_age(repo, sha):
     owner, name = repo.split("/")
     gh = ci.github()
-    return days_since(gh.rest.repos.get_commit(owner, name, sha).parsed_data.commit.committer.date)
+    return days_since(
+        gh.rest.repos.get_commit(owner, name, sha).parsed_data.commit.committer.date
+    )
 
 
 def git(*args):
@@ -71,8 +81,16 @@ def commit_pin(pin, files, subject, current, proposed, what, days):
     if not changed:
         raise Fail(f"the writer changed nothing for {proposed}")
     if stray := [f for f in changed if f not in files]:
-        raise Fail(f"the writer changed {stray[0]}, which is not one of the pin files ({' '.join(files)})")
-    p = git("commit", "-q", "-a", "-m", f"{subject}\n\n{pin} | {current} | {proposed} | {what} | {days}")
+        raise Fail(
+            f"the writer changed {stray[0]}, which is not one of the pin files ({' '.join(files)})"
+        )
+    p = git(
+        "commit",
+        "-q",
+        "-a",
+        "-m",
+        f"{subject}\n\n{pin} | {current} | {proposed} | {what} | {days}",
+    )
     if p.returncode != 0:
         raise Fail(f"git commit failed: {p.stderr.strip()}")
     return f"moved {current} to {proposed}"
@@ -96,7 +114,13 @@ def bump_source(pin, root):
             except ValueError as e:
                 raise Fail(f"cannot write {path} ({e})")
             return commit_pin(
-                pin, [path], f"Bump {pin} to {tag}", current, tag, f"https://github.com/{cur.watch}/compare/{old}...{tag}", commit_age(cur.watch, commit)
+                pin,
+                [path],
+                f"Bump {pin} to {tag}",
+                current,
+                tag,
+                f"https://github.com/{cur.watch}/compare/{old}...{tag}",
+                commit_age(cur.watch, commit),
             )
         case "forkbehind":
             return f"the fork is behind upstream ({decision.tag}): run gh repo sync on it first"
@@ -110,14 +134,24 @@ def bump_ghostty(root):
         cur = pins.load_upstream(Path(root) / files[0])
     except ValueError:
         raise Fail("invalid upstream.env")
-    current = f"{cur.tag}, zig {pins.read_env(Path(root) / files[1]).get('ZIG_VERSION', '')}"
+    current = (
+        f"{cur.tag}, zig {pins.read_env(Path(root) / files[1]).get('ZIG_VERSION', '')}"
+    )
     decision = ghostty_check.check(root)
     ci.log.info(f"ghostty: {decision.line()}")
     match decision.verb:
         case "bump":  # a new Ghostty tag brings the Zig minor it needs: one commit for both, they cannot be applied apart
             tag, commit, zig = decision.tag, decision.commit, decision.zig
             try:
-                pins.write_ghostty(Path(root) / "src/ghostty", tag, commit, zig, decision.zig_url, decision.zig_sha256, decision.zig_size)
+                pins.write_ghostty(
+                    Path(root) / "src/ghostty",
+                    tag,
+                    commit,
+                    zig,
+                    decision.zig_url,
+                    decision.zig_sha256,
+                    decision.zig_size,
+                )
             except ValueError as e:
                 raise Fail(f"writing the Ghostty and Zig pins failed ({e})")
             return commit_pin(
@@ -138,7 +172,12 @@ def bump_ghostty(root):
 def builder_created(repo, major):
     """The creation date of the builder image's config, "" when it cannot be read."""
     try:
-        return json.loads(registry.read("config", f"{repo}:{major}", linux_amd64=True)).get("created") or ""
+        return (
+            json.loads(
+                registry.read("config", f"{repo}:{major}", linux_amd64=True)
+            ).get("created")
+            or ""
+        )
     except registry.Absent, registry.ReadError, ValueError:
         return ""
 
@@ -166,31 +205,49 @@ def bump_builder(root):
         return f"nothing to bump yet: {new[:19]} was built {age} days ago ({created}); a digest is proposed once it has been the tag's value for {minimum} days"
     pins.set_lines(Path(root) / path, {"BUILDER": f"{repo}:{major}@{new}"})
     return commit_pin(
-        "builder", [path], f"Bump the Fedora {major} builder digest (built {created.split('T')[0]})", current, f"{major}@{new[:19]}", f"{repo}:{major}", age
+        "builder",
+        [path],
+        f"Bump the Fedora {major} builder digest (built {created.split('T')[0]})",
+        current,
+        f"{major}@{new[:19]}",
+        f"{repo}:{major}",
+        age,
     )
 
 
 def locked_versions(lock_text):
     """name -> version of every package in a uv.lock."""
-    return {p["name"]: p["version"] for p in tomllib.loads(lock_text).get("package", []) if "version" in p}
+    return {
+        p["name"]: p["version"]
+        for p in tomllib.loads(lock_text).get("package", [])
+        if "version" in p
+    }
 
 
 def lock_changes(before, after):
     """The packages whose locked version differs between two uv.lock texts, as `name old to new` (added and removed ones included)."""
     old, new = locked_versions(before), locked_versions(after)
-    return [f"{n} {old.get(n, '-')} to {new.get(n, '-')}" for n in sorted(old.keys() | new.keys()) if old.get(n) != new.get(n)]
+    return [
+        f"{n} {old.get(n, '-')} to {new.get(n, '-')}"
+        for n in sorted(old.keys() | new.keys())
+        if old.get(n) != new.get(n)
+    ]
 
 
 def bump_python_deps(root):
     path = Path(root) / "uv.lock"
     before = path.read_text()
-    proc = subprocess.run(["uv", "lock", "--upgrade"], cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(
+        ["uv", "lock", "--upgrade"], cwd=root, capture_output=True, text=True
+    )
     if proc.returncode != 0:
         raise Fail(f"uv lock --upgrade failed: {ci.text(proc.stderr, 200)}")
     changes = lock_changes(before, path.read_text())
     if not changes:
         return "nothing to bump: every locked version is current"
-    shown = ", ".join(changes[:4]) + (f" and {len(changes) - 4} more" if len(changes) > 4 else "")
+    shown = ", ".join(changes[:4]) + (
+        f" and {len(changes) - 4} more" if len(changes) > 4 else ""
+    )
     return commit_pin(
         "python-deps",
         ["uv.lock"],
@@ -227,7 +284,18 @@ def bump_python(root):
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", current):
         raise Fail(f".python-version is '{current}', not an exact x.y.z version")
     proc = subprocess.run(
-        ["uv", "python", "list", "--only-downloads", "--output-format", "json", ".".join(current.split(".")[:2])], cwd=root, capture_output=True, text=True
+        [
+            "uv",
+            "python",
+            "list",
+            "--only-downloads",
+            "--output-format",
+            "json",
+            ".".join(current.split(".")[:2]),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         raise Fail(f"uv python list failed: {ci.text(proc.stderr, 200)}")
@@ -235,7 +303,9 @@ def bump_python(root):
     if new is None:
         raise Fail(f"uv lists no CPython {'.'.join(current.split('.')[:2])}")
     if version_tuple(new) <= version_tuple(current):
-        return f"nothing to bump: {current} is the newest patch release this uv installs"
+        return (
+            f"nothing to bump: {current} is the newest patch release this uv installs"
+        )
     path.write_text(new + "\n")
     return commit_pin(
         "python",
@@ -269,7 +339,11 @@ def bump(pin, root="."):
 
 def main(argv=None):
     ap = ci.arg_parser(__doc__)
-    ap.add_argument("pin", choices=["scx", "extest", "ghostty", "builder", "python-deps", "python"], help="the pin to check")
+    ap.add_argument(
+        "pin",
+        choices=["scx", "extest", "ghostty", "builder", "python-deps", "python"],
+        help="the pin to check",
+    )
     pin = ap.parse_args(argv).pin
     try:
         status = bump(pin)

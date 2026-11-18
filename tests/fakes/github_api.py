@@ -8,7 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 
-API = Path(__file__).parent / "api"  # real GitHub answers (captured once), because githubkit validates every field of a typed response
+API = (
+    Path(__file__).parent / "api"
+)  # real GitHub answers (captured once), because githubkit validates every field of a typed response
 
 
 def fixture(name, **fields):
@@ -18,7 +20,9 @@ def fixture(name, **fields):
 
 def pull(number, ref):
     """A pull request answer with the given number and head branch."""
-    data = fixture("pull", number=number, html_url=f"https://example.test/pull/{number}")
+    data = fixture(
+        "pull", number=number, html_url=f"https://example.test/pull/{number}"
+    )
     data["head"] = {**data["head"], "ref": ref}
     return data
 
@@ -44,7 +48,11 @@ class FakeGitHub:
         if method == "GET" and path.endswith("/pulls"):
             return 200, self.prs
         if method == "GET":
-            return (200, self.routes[path]) if path in self.routes else (404, {"message": "Not Found"})
+            return (
+                (200, self.routes[path])
+                if path in self.routes
+                else (404, {"message": "Not Found"})
+            )
         if method == "POST" and path.endswith("/pulls"):
             number = len(self.prs) + len(self.created) + 100
             self.created.append((body["head"], body["title"]))
@@ -78,7 +86,10 @@ class FakeGitHub:
                     self.connection.close()
                     return
                 status, payload = fake.answer(self.command, path, body)
-                if isinstance(payload, list) and parse_qs(urlsplit(self.path).query).get("page", ["1"])[0] != "1":
+                if (
+                    isinstance(payload, list)
+                    and parse_qs(urlsplit(self.path).query).get("page", ["1"])[0] != "1"
+                ):
                     payload = []  # every list fits on page 1
                 data = json.dumps(payload).encode() if payload is not None else b""
                 self.send_response(status)

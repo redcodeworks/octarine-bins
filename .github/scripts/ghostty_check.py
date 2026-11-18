@@ -71,13 +71,22 @@ def check(root):
     pin = pins.load_upstream(directory / "upstream.env")
     pin_tag = pin.tag
     pin_zig = pins.read_env(directory / "zig.env").get("ZIG_VERSION", "")
-    if not (re.fullmatch(r"0\.[0-9]+\.[0-9]+", pin_zig) and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", pin_tag)):
-        raise ValueError(f"the pins in src/ghostty are not release versions (tag '{pin_tag}', zig '{pin_zig}')")
+    if not (
+        re.fullmatch(r"0\.[0-9]+\.[0-9]+", pin_zig)
+        and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", pin_tag)
+    ):
+        raise ValueError(
+            f"the pins in src/ghostty are not release versions (tag '{pin_tag}', zig '{pin_zig}')"
+        )
     owner, name = pin.watch.split("/")
     gh = ci.github()  # keep the client: gh.rest only holds a weak reference to it
     rest = gh.rest
 
-    stable = [t.name for t in rest.paginate(rest.repos.list_tags, owner=owner, repo=name) if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", t.name)]
+    stable = [
+        t.name
+        for t in rest.paginate(rest.repos.list_tags, owner=owner, repo=name)
+        if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", t.name)
+    ]
     if not stable:
         raise ValueError(f"{pin.watch} has no stable v<major>.<minor>.<patch> tag")
     latest = max(stable, key=ci.version)
@@ -89,13 +98,22 @@ def check(root):
 
     if latest != pin_tag and ci.version(latest) > ci.version(pin_tag):
         commit = rest.repos.get_commit(owner, name, latest).parsed_data.sha
-        zon = rest.repos.get_content(owner, name, "build.zig.zon", ref=latest).parsed_data
-        m = re.search(r'\.minimum_zig_version *= *"([0-9][0-9.]*)"', base64.b64decode(zon.content).decode(errors="replace"))
+        zon = rest.repos.get_content(
+            owner, name, "build.zig.zon", ref=latest
+        ).parsed_data
+        m = re.search(
+            r'\.minimum_zig_version *= *"([0-9][0-9.]*)"',
+            base64.b64decode(zon.content).decode(errors="replace"),
+        )
         if not m:
             raise ValueError(f"cannot read minimum_zig_version of {pin.watch} {latest}")
         minimum = m.group(1)
         minor = minimum.rsplit(".", 1)[0]
-        patches = [v for v in index.root if re.fullmatch(re.escape(minor) + r"\.[0-9]+", v) and tarball(v).tarball]
+        patches = [
+            v
+            for v in index.root
+            if re.fullmatch(re.escape(minor) + r"\.[0-9]+", v) and tarball(v).tarball
+        ]
         if not patches:
             return Decision(
                 "wait",
@@ -104,23 +122,42 @@ def check(root):
             )
         zv = max(patches, key=ci.version)
         if ci.version(minimum) > ci.version(zv):
-            return Decision("wait", tag=latest, text=f"{latest} needs Zig {minimum} or newer and the newest published {minor} is {zv}")
+            return Decision(
+                "wait",
+                tag=latest,
+                text=f"{latest} needs Zig {minimum} or newer and the newest published {minor} is {zv}",
+            )
         entry = tarball(zv)
         if not (
-            entry.tarball == f"https://ziglang.org/download/{zv}/zig-x86_64-linux-{zv}.tar.xz"
+            entry.tarball
+            == f"https://ziglang.org/download/{zv}/zig-x86_64-linux-{zv}.tar.xz"
             and re.fullmatch(r"[0-9a-f]{64}", entry.shasum)
             and re.fullmatch(r"[0-9]+", str(entry.size))
         ):
-            raise ValueError(f"index.json has no official x86_64-linux tarball entry for {zv}")
-        return Decision("bump", tag=latest, commit=commit, zig=zv, zig_url=entry.tarball, zig_sha256=entry.shasum, zig_size=str(entry.size))
+            raise ValueError(
+                f"index.json has no official x86_64-linux tarball entry for {zv}"
+            )
+        return Decision(
+            "bump",
+            tag=latest,
+            commit=commit,
+            zig=zv,
+            zig_url=entry.tarball,
+            zig_sha256=entry.shasum,
+            zig_size=str(entry.size),
+        )
 
     # the pinned tag is current (or ahead of the newest stable tag): nothing to do; Zig changes only together with a Ghostty tag
-    return Decision("current", text=f"{pin_tag} is the newest stable Ghostty tag (Zig {pin_zig})")
+    return Decision(
+        "current", text=f"{pin_tag} is the newest stable Ghostty tag (Zig {pin_zig})"
+    )
 
 
 def main(argv=None):
     ci.arg_parser(__doc__).parse_args(argv)
-    ci.result(check(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]).line())
+    ci.result(
+        check(os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]).line()
+    )
     return 0
 
 
