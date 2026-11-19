@@ -36,8 +36,8 @@ def repo(tmp_path):
         "tests/t.py": "t",
         ".github/workflows/binaries.yml": "wf",
         ".github/actions/build-image/action.yml": "ba",
-        ".github/scripts/push_image.py": "p",
-        ".github/scripts/binaries_layout.py": "l",
+        ".github/scripts/20-build/push_image.py": "p",
+        ".github/scripts/20-build/binaries_layout.py": "l",
     }
 
     # write every file, creating its directories
@@ -87,8 +87,8 @@ RULES = [
     ("Justfile", "src", True),
     (".github/workflows/binaries.yml", "src", True),
     (".github/actions/build-image/action.yml", "src", True),
-    (".github/scripts/push_image.py", "src", True),
-    (".github/scripts/binaries_layout.py", "src", True),
+    (".github/scripts/20-build/push_image.py", "src", True),
+    (".github/scripts/20-build/binaries_layout.py", "src", True),
     ("tests/t.py", "src", True),
     ("README.md", "src", True),
     # content: everything under src/

@@ -21,11 +21,11 @@ build image="octarine-bins:dev" version="dev" revision="unknown" dir="src":
         --tag "{{ image }}" \
         --file {{ dir }}/Containerfile {{ dir }}
     # the stamp (version, revision, created labels) is a separate no-cache step, so a cache-served build is stamped too (stamp_image.py)
-    uv run --frozen --no-dev python -I .github/scripts/stamp_image.py "{{ image }}" "{{ version }}" "{{ revision }}"
+    uv run --frozen --no-dev python -I .github/scripts/20-build/stamp_image.py "{{ image }}" "{{ version }}" "{{ revision }}"
 
 # Check a built image against the layout octarine-os reads (/binaries/<name>/, COMPONENTS, BUILDINFO, LICENSES/)
 layout image="octarine-bins:dev" dir="src":
-    uv run --frozen --no-dev python -I .github/scripts/binaries_layout.py "{{ image }}" "{{ dir }}"
+    uv run --frozen --no-dev python -I .github/scripts/20-build/binaries_layout.py "{{ image }}" "{{ dir }}"
 
 # Run the tests: pytest through uv (the locked dependencies, Python from .python-version). group is one directory of tests/ (CI runs one job per group); empty runs all
 test group="":

@@ -37,4 +37,4 @@ runs:
         NAME: ${{ inputs.name }}
         DIR: ${{ inputs.dir }}
         CHECK: ${{ inputs.check }}
-      run: uv run --frozen --no-dev python -I .github/scripts/binaries_promote.py ${CHECK} "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"
+      run: uv run --frozen --no-dev python -I .github/scripts/40-promote/binaries_promote.py ${CHECK} "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${NAME}" "${DIR}"

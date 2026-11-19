@@ -38,6 +38,7 @@ from pathlib import Path
 from githubkit.exception import RequestFailed
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "00-lib"))
 import ci  # noqa: E402
 import pins  # noqa: E402
 from pins import Decision  # noqa: E402
@@ -175,7 +176,7 @@ def main(argv=None):
     ap = ci.arg_parser(__doc__)
     ap.add_argument("directory", help="component directory, for example src/scx")
     args = ap.parse_args(argv)
-    root = os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[2]
+    root = os.environ.get("REPO_ROOT") or Path(__file__).resolve().parents[3]
     ci.result(check(root, args.directory).line())
     return 0
 

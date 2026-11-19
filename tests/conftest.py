@@ -18,7 +18,19 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / ".github" / "scripts"
 FAKES = ROOT / "tests" / "fakes"
-sys.path.insert(0, str(SCRIPTS))
+
+# the scripts and their numbered directories (00-lib, ...) are all importable by name
+sys.path[:0] = [str(SCRIPTS), *(str(d) for d in sorted(SCRIPTS.glob("[0-9][0-9]-*")))]
+
+
+def find_script(name):
+    """The path of the script `name` (a file name) in its numbered directory.
+
+    Searches .github/scripts and the numbered directories below it; a script that does
+    not exist is a mistake in the test, so this raises StopIteration.
+    """
+    # a script sits in the directory of its pipeline stage
+    return next(SCRIPTS.rglob(name))
 
 
 @pytest.fixture
@@ -59,7 +71,7 @@ def script(name, *args, cwd=None, env=None, extra=None):
     """
     e = {**os.environ, **(env or {}), **(extra or {})}
     return subprocess.run(
-        [sys.executable, "-I", str(SCRIPTS / name), *args],
+        [sys.executable, "-I", str(find_script(name)), *args],
         cwd=cwd,
         env=e,
         capture_output=True,

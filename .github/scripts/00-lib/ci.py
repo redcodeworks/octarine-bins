@@ -6,9 +6,9 @@ scripts), version ordering (packaging), step outputs and the list of an image's 
 inputs.
 
 The scripts run through uv with the locked dependencies (`uv run --frozen python -I
-.github/scripts/<name>.py`). `-I` keeps the script's own directory off sys.path, so
-each script adds it back with two lines (see any script) before it imports this
-module.
+.github/scripts/<stage>/<name>.py`). `-I` keeps the script's own directory off
+sys.path, so each script adds it back, and the 00-lib directory this module lives in,
+with two lines (see any script) before it imports this module.
 """
 
 import argparse

@@ -76,7 +76,7 @@ runs:
       env:
         IMAGE: ${{ steps.names.outputs.image }}
         DIR: ${{ inputs.dir }}
-      run: uv run --frozen --no-dev python -I .github/scripts/binaries_skip.py "${IMAGE}" "${DIR}"
+      run: uv run --frozen --no-dev python -I .github/scripts/10-plan/binaries_skip.py "${IMAGE}" "${DIR}"
 
     - name: Set up just
       if: steps.skip.outputs.skip != 'true'
@@ -119,4 +119,4 @@ runs:
         NAME: ${{ inputs.name }}
         IMAGE: ${{ steps.names.outputs.image }}
         VERSION: ${{ steps.names.outputs.version }}
-      run: uv run --frozen --no-dev python -I .github/scripts/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"
+      run: uv run --frozen --no-dev python -I .github/scripts/20-build/push_image.py "${NAME}:${VERSION}" "${IMAGE}" "${VERSION}"

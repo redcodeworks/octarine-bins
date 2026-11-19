@@ -37,7 +37,7 @@ A maintainers' note, not user documentation. The original shell scripts are kept
 
 ## 4. Dependency and CI setup that worked
 - `pyproject.toml` (`requires-python >=3.14`, dependencies, a `dev` group), a committed `uv.lock` with hashes, `.python-version` (3.14, uv-managed).
-- Every script: `uv run --frozen --no-dev python -I .github/scripts/<name>.py`; `--frozen` resolves nothing at run time, `uv run` creates the venv, so there is no separate install step.
+- Every script: `uv run --frozen --no-dev python -I .github/scripts/<stage>/<name>.py` (scripts live in numbered stage directories: `00-lib` for shared helpers, then one directory per pipeline stage; a directory name starting with a digit is not an importable package, so each script inserts its own directory and `00-lib` into `sys.path`); `--frozen` resolves nothing at run time, `uv run` creates the venv, so there is no separate install step.
 - One composite action, `setup-ci-python`, wraps the SHA-pinned `astral-sh/setup-uv` with its cache on (keyed on `uv.lock`, plus the managed Python); the sign job, which holds the signing key, passes `cache: false`. Other steps in that job (cosign through `setup-tool`) still restore their own cache; that is a separate decision.
 - zizmor stayed green without a new ignore; the cache needed none. Action versions stay pinned by SHA.
 - A weekly `python-deps` bump kind runs `uv lock --upgrade` and opens its own PR like the other pins.
